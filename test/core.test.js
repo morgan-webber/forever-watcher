@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { summarise, itemKey, marketValue } from "../collector/summarise.js";
 import { diffLifecycle } from "../collector/lifecycle.js";
-import { emptyHistory, recordSnapshot, recordSales, recordTracking, metrics } from "../collector/history.js";
+import { emptyHistory, recordSnapshot, recordSales, recordTracking, metrics, clearSales } from "../collector/history.js";
 import { findOpportunities, depositFor } from "../collector/opportunities.js";
 import { groupHouses, parseHouseIndex } from "../collector/houses.js";
 import { gold } from "../collector/alerts.js";
@@ -95,4 +95,27 @@ test("hourly points carry estimated sales and keep them across a same-hour resca
   assert.equal(hist.items["5"].h.length, 1);
   assert.equal(hist.items["5"].h[0][5], 7, "sales survive the rescan");
   assert.equal(hist.items["5"].h[0][1], 101);
+});
+
+test("lifecycle: cancel-and-repost of the same stack size is not counted as a sale", () => {
+  const prev = { 1: ["5", 100, 20, "LONG"], 2: ["5", 100, 20, "LONG"], 3: ["5", 100, 5, "VERY_LONG"] };
+  // Both 20-stacks reposted under new ids at a lower price; the 5-stack really sold.
+  const cur = [{ id: 10, key: "5", unit: 95, qty: 20, tl: "VERY_LONG" }, { id: 11, key: "5", unit: 95, qty: 20, tl: "VERY_LONG" }];
+  const d = diffLifecycle(prev, cur, { gapOk: true });
+  assert.equal(d.reposted, 2);
+  assert.equal(d.sold.get("5").qty, 5);
+});
+
+test("clearSales keeps prices and drops sales", () => {
+  const hist = emptyHistory();
+  const t = Date.UTC(2026, 10, 21, 10);
+  recordSnapshot(hist, t, new Map([["5", { mv: 100, min: 90, qty: 50, n: 5 }]]), 96);
+  recordSales(hist, t, new Map([["5", { qty: 7, n: 2, value: 700 }]]), new Map([["5", { qty: 3 }]]));
+  recordTracking(hist, t, 1);
+  clearSales(hist);
+  const e = hist.items["5"];
+  assert.equal(e.h[0].length, 5);
+  assert.equal(e.h[0][1], 100);
+  assert.deepEqual([e.d[0][4], e.d[0][5], e.d[0][6]], [0, 0, 0]);
+  assert.deepEqual(hist.track, {});
 });

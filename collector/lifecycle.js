@@ -10,6 +10,12 @@
  * snapshots had units bought. If the gap since the previous snapshot is too long, nothing
  * is classified, because expiries can't be told apart from sales.
  *
+ * Reposts: sellers constantly cancel and relist (usually to undercut). A cancelled LONG listing
+ * looks exactly like a sale, so when listings of an item disappear and NEW listings of the same
+ * item with the same stack size appear in the same scan, those are paired off as reposts and
+ * counted as neither sold nor expired. This errs low on purpose (a genuine sale plus a fresh
+ * posting of the same stack size is also paired off).
+ *
  * live state per house: { [auctionId]: [key, unit, qty, timeLeft] }
  */
 const SOLD_LIKELY = new Set(["LONG", "VERY_LONG"]);
@@ -26,6 +32,15 @@ export function diffLifecycle(prevLive = {}, current, { gapOk = true } = {}) {
     m.set(key, e);
   };
 
+  // New listings by item + stack size, available to pair against disappearances.
+  const fresh = new Map();
+  for (const a of current) {
+    if (prevLive[a.id]) continue;
+    const k = `${a.key}|${a.qty}`;
+    fresh.set(k, (fresh.get(k) ?? 0) + 1);
+  }
+  let reposted = 0;
+
   for (const a of current) {
     const prev = prevLive[a.id];
     next[a.id] = [a.key, a.unit, a.qty, a.tl];
@@ -39,9 +54,16 @@ export function diffLifecycle(prevLive = {}, current, { gapOk = true } = {}) {
   if (gapOk) {
     for (const [id, [key, unit, qty, tl]] of Object.entries(prevLive)) {
       if (next[id]) continue;
+      const k = `${key}|${qty}`;
+      const n = fresh.get(k) ?? 0;
+      if (n > 0) {
+        fresh.set(k, n - 1);
+        reposted++;
+        continue;
+      }
       if (SOLD_LIKELY.has(tl)) add(sold, key, qty, 1, (unit ?? 0) * qty);
       else if (tl === "SHORT" || tl === "MEDIUM") add(expired, key, qty);
     }
   }
-  return { next, sold, expired };
+  return { next, sold, expired, reposted };
 }

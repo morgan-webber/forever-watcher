@@ -7,7 +7,7 @@ import { readJson, writeJson } from "./store.js";
 import { groupHouses, parseHouseIndex } from "./houses.js";
 import { summarise, ladderize, statsOf, baseId } from "./summarise.js";
 import { diffLifecycle } from "./lifecycle.js";
-import { emptyHistory, recordSnapshot, recordSales, recordTracking, prune } from "./history.js";
+import { emptyHistory, recordSnapshot, recordSales, recordTracking, prune, clearSales } from "./history.js";
 import { backfillItems } from "./items.js";
 import { findOpportunities } from "./opportunities.js";
 import { refreshRecipes, refreshClientItems, cleanCatalog } from "./catalog.js";
@@ -49,6 +49,11 @@ export async function collect({ client, config, stateDir, outDir, nowMs = Date.n
   const current = {};
   const allOpps = [];
   const stats = { fetched: 0, unchanged: 0, failed: 0 };
+  // Sales model version: when the way sales are estimated changes, recorded sales are cleared so
+  // averages don't mix the old and new estimates. Prices are kept.
+  const SALES_MODEL = 2;
+  const resetSales = (meta.salesModel ?? 1) !== SALES_MODEL;
+  meta.salesModel = SALES_MODEL;
 
   // Catalog: Forever client item table (fallback item data) and Blizzard recipes.
   let clientItems = await readJson(S("client-items.json.gz"), null);
@@ -103,6 +108,11 @@ export async function collect({ client, config, stateDir, outDir, nowMs = Date.n
       const tag = `${region}-${house.id}`;
       const scan = (meta.lastScan[tag] ??= {});
       const hist = await readJson(S("hist", `${tag}.json.gz`), emptyHistory());
+      if (resetSales) {
+        clearSales(hist);
+        await writeJson(S("hist", `${tag}.json.gz`), hist);
+        note(tag, "sales history cleared for the new sales model; prices kept");
+      }
       const liveState = await readJson(S("live", `${tag}.json.gz`), { t: null, live: {} });
       const base = `/data/wow/ruleset/${settings.listRuleset}/auctions/${house.id}`;
       try {
@@ -155,7 +165,7 @@ export async function collect({ client, config, stateDir, outDir, nowMs = Date.n
             stats.fetched++;
             const soldQty = [...diff.sold.values()].reduce((s, x) => s + x.qty, 0);
             log(`  ${house.id} ${house.name}: ${sum.listings} listings, ${sum.stats.size} items${gapOk ? `, ~${soldQty} units sold since last scan` : ", sales not classified (first scan or gap)"}`);
-            note(tag, `new data: ${sum.listings} listings, Blizzard data time ${new Date(dataT).toISOString()}${gapOk ? `, ~${soldQty} units sold` : ""}`);
+            note(tag, `new data: ${sum.listings} listings, Blizzard data time ${new Date(dataT).toISOString()}${gapOk ? `, ~${soldQty} units sold, ${diff.reposted} reposts ignored` : ""}`);
           }
         }
       } catch (e) {

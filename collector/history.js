@@ -66,6 +66,15 @@ export function recordSales(hist, nowMs, sold, expired) {
   }
 }
 
+/** Drops all recorded sales and tracking hours, keeping prices. */
+export function clearSales(hist) {
+  hist.track = {};
+  for (const e of Object.values(hist.items)) {
+    for (const p of e.h) p.length = Math.min(p.length, 5);
+    for (const r of e.d) { r[D.SOLD] = 0; r[D.EXP] = 0; r[D.SOLDV] = 0; }
+  }
+}
+
 export function recordTracking(hist, nowMs, hours) {
   const day = toDay(nowMs);
   hist.track[day] = Math.min(24, (hist.track[day] ?? 0) + hours);
