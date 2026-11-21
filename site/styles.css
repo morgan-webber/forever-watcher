@@ -293,3 +293,6 @@ table.mini th { position: static; background: none; border-bottom: 1px solid var
 table.mini td { padding: 6px 8px; }
 table.mini tbody tr { cursor: default; }
 table.mini tr.total td { border-top: 1px solid var(--rule); border-bottom: 0; }
+.freshness { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: baseline; margin: -10px 0 18px; color: var(--vellum-dim); }
+.freshness > span:not(.note) { white-space: nowrap; }
+.warn { color: #e9c86a; }

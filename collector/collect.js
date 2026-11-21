@@ -16,6 +16,22 @@ import { logOpportunities, evaluate, summarise as summariseBacktest } from "./ba
 import { collectAlerts, postDiscord } from "./alerts.js";
 import { publish } from "./publish.js";
 
+/** One line per house in the GitHub Actions run summary (visible in the Actions tab). */
+function note(tag, msg, level = "notice") {
+  if (process.env.GITHUB_ACTIONS) console.log(`::${level} title=${tag}::${msg}`);
+}
+
+/** Cheap fingerprint of a snapshot: count, id sum and quantity sum. */
+function fingerprint(raw) {
+  let ids = 0;
+  let qty = 0;
+  for (const a of raw) {
+    ids = (ids + Number(a.id ?? 0)) % 1e15;
+    qty += Number(a.quantity ?? 1);
+  }
+  return `${raw.length}:${ids}:${qty}`;
+}
+
 const defaultFetchText = async (url) => {
   const r = await fetch(url, { headers: { "User-Agent": "forever-watcher (github.com/morgan-webber/forever-watcher)" } });
   if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
@@ -90,46 +106,69 @@ export async function collect({ client, config, stateDir, outDir, nowMs = Date.n
       const liveState = await readJson(S("live", `${tag}.json.gz`), { t: null, live: {} });
       const base = `/data/wow/ruleset/${settings.listRuleset}/auctions/${house.id}`;
       try {
-        let a = await client.get(region, base, "dynamic-forever", { ifModifiedSince: scan.lmA });
-        let c = await client.get(region, `${base}/commodities`, "dynamic-forever", { ifModifiedSince: scan.lmC });
+        // Conditional requests save downloads, but a "not modified" answer is never trusted for
+        // more than ~70 minutes: then both endpoints are fetched in full and a fingerprint of the
+        // listings decides whether anything actually changed.
+        const stale = !scan.full || nowMs - scan.full > 70 * 60_000;
+        let a = await client.get(region, base, "dynamic-forever", { ifModifiedSince: stale ? undefined : scan.lmA });
+        let c = await client.get(region, `${base}/commodities`, "dynamic-forever", { ifModifiedSince: stale ? undefined : scan.lmC });
         if (a.status === 304 && c.status === 304) {
           stats.unchanged++;
+          note(tag, `not modified since ${scan.lmA ?? "?"} (full check ${Math.round((nowMs - scan.full) / 60000)} min ago)`);
         } else {
           if (a.status === 304) a = await client.get(region, base, "dynamic-forever");
           if (c.status === 304) c = await client.get(region, `${base}/commodities`, "dynamic-forever");
+          scan.full = nowMs;
           const raw = [...(a.json?.auctions ?? []), ...(Array.isArray(a.json?.commodities) ? a.json.commodities : []), ...(c.json?.auctions ?? [])];
-          const sum = summarise(raw);
-          const gapH = liveState.t ? (nowMs - liveState.t) / 3_600_000 : null;
-          const gapOk = gapH != null && gapH <= settings.gapHours;
-          const diff = diffLifecycle(liveState.live, sum.live, { gapOk });
-          recordSnapshot(hist, nowMs, sum.stats, settings.hourlyKeepHours);
-          if (gapOk) {
-            recordSales(hist, nowMs, diff.sold, diff.expired);
-            recordTracking(hist, nowMs, gapH);
-          }
-          prune(hist, nowMs, settings.dailyKeepDays);
-          liveState.t = nowMs;
-          liveState.live = diff.next;
+          const sig = fingerprint(raw);
+          // Blizzard's data time: the newer Last-Modified of the two endpoints (else now).
+          const dataT = Math.max(Date.parse(a.lastModified ?? "") || 0, Date.parse(c.lastModified ?? "") || 0) || nowMs;
           scan.lmA = a.lastModified ?? undefined;
           scan.lmC = c.lastModified ?? undefined;
-          scan.t = nowMs;
-          scan.listings = sum.listings;
-          await writeJson(S("hist", `${tag}.json.gz`), hist);
-          await writeJson(S("live", `${tag}.json.gz`), liveState);
-          stats.fetched++;
-          const soldQty = [...diff.sold.values()].reduce((s, x) => s + x.qty, 0);
-          log(`  ${house.id} ${house.name}: ${sum.listings} listings, ${sum.stats.size} items${gapOk ? `, ~${soldQty} units sold since last scan` : ", sales not classified (first scan or gap)"}`);
+          if (sig === scan.sig) {
+            stats.unchanged++;
+            note(tag, `downloaded, listings identical to the last snapshot (Blizzard data time ${new Date(dataT).toISOString()})`);
+          } else {
+            const sum = summarise(raw);
+            // Sales are classified between consecutive snapshots; the gap is measured in Blizzard's
+            // data time when it advances, else in our clock.
+            const prevT = liveState.dataT ?? liveState.t;
+            const curT = dataT > (liveState.dataT ?? 0) ? dataT : nowMs;
+            const gapH = prevT ? (curT - prevT) / 3_600_000 : null;
+            const gapOk = gapH != null && gapH > 0 && gapH <= settings.gapHours;
+            const diff = diffLifecycle(liveState.live, sum.live, { gapOk });
+            recordSnapshot(hist, nowMs, sum.stats, settings.hourlyKeepHours);
+            if (gapOk) {
+              recordSales(hist, nowMs, diff.sold, diff.expired);
+              recordTracking(hist, nowMs, gapH);
+            }
+            prune(hist, nowMs, settings.dailyKeepDays);
+            liveState.t = nowMs;
+            liveState.dataT = curT;
+            liveState.live = diff.next;
+            scan.t = nowMs;
+            scan.dataT = dataT;
+            scan.sig = sig;
+            scan.listings = sum.listings;
+            await writeJson(S("hist", `${tag}.json.gz`), hist);
+            await writeJson(S("live", `${tag}.json.gz`), liveState);
+            stats.fetched++;
+            const soldQty = [...diff.sold.values()].reduce((s, x) => s + x.qty, 0);
+            log(`  ${house.id} ${house.name}: ${sum.listings} listings, ${sum.stats.size} items${gapOk ? `, ~${soldQty} units sold since last scan` : ", sales not classified (first scan or gap)"}`);
+            note(tag, `new data: ${sum.listings} listings, Blizzard data time ${new Date(dataT).toISOString()}${gapOk ? `, ~${soldQty} units sold` : ""}`);
+          }
         }
       } catch (e) {
         stats.failed++;
         log(`  ${house.id} failed: ${e.message}`);
+        note(tag, `FAILED: ${e.message}`, "warning");
       }
       // Ladders from the live state, so unchanged houses still take part in scoring.
       const ladders = ladderize(Object.values(liveState.live));
       const st = statsOf(ladders);
       current[region].set(house.id, st);
       hists.set(house.id, hist);
-      houseData.push({ house: { ...house, lastScan: scan.t ?? null, listings: scan.listings ?? 0 }, ladders, stats: st, hist });
+      houseData.push({ house: { ...house, lastScan: scan.t ?? null, dataTime: scan.dataT ?? null, checked: scan.full ?? null, listings: scan.listings ?? 0 }, ladders, stats: st, hist });
     }
 
     // 3. Item metadata.

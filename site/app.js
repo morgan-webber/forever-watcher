@@ -71,6 +71,13 @@ const houseLabel = (id) => {
   const h = house(id);
   return h ? `<span class="fac ${h.faction}">${esc(h.faction === "neutral" ? "Blackwater" : h.faction[0].toUpperCase() + h.faction.slice(1))}</span> <span class="sub">${esc(h.groupName)} · #${h.id}</span>` : `#${id}`;
 };
+/** How old a house's data is: Blizzard's data time when known, else our last scan. */
+const freshness = (h) => {
+  const t = h?.dataTime ?? h?.lastScan;
+  if (!t) return '<span class="muted">no data yet</span>';
+  const mins = (Date.now() - t) / 60000;
+  return `<span class="${mins > 150 ? "neg" : mins > 90 ? "warn" : ""}" title="Blizzard's snapshot time${h.checked ? `; last checked ${ago(h.checked)}` : ""}">${ago(t)}</span>`;
+};
 const inGroup = (id) => S.group === "all" || house(id)?.group === Number(S.group);
 
 async function index() {
@@ -271,6 +278,7 @@ async function viewItem(el, region, base, variantKey) {
     { key: "qty", label: "Listed", num: true, html: (x) => (x.m?.listed ? x.last[3].toLocaleString() : "0"), sort: (x) => (x.m?.listed ? x.last[3] : 0) },
     { key: "spd", label: "Sold/day", num: true, html: (x) => fixed(x.m?.soldPerDay), sort: (x) => x.m?.soldPerDay },
     { key: "st", label: "Sell-thru", num: true, html: (x) => pct(x.m?.sellThrough), sort: (x) => x.m?.sellThrough },
+    { key: "age", label: "Data age", num: true, html: (x) => freshness(house(x.hid)), sort: (x) => house(x.hid)?.dataTime ?? house(x.hid)?.lastScan },
   ], rows, { sortKey: "spd", onRow: (x) => { sel.value = x.hid; draw(); } }));
 
   sel.innerHTML = `${rows.length > 1 ? '<option value="all">All houses, side by side</option>' : ""}${rows.map((x) => `<option value="${x.hid}">${esc(factionName(house(x.hid)))} · ${esc(house(x.hid).groupName)}</option>`).join("")}`;
@@ -416,7 +424,8 @@ async function viewMarket(el) {
   const f = store.get("mktFilters", { q: "", cls: "", qual: "", minSpd: "", minPrice: "", maxPrice: "", minSpread: "" });
   el.innerHTML = `
     <h1 class="illumined">Market</h1>
-    <p class="lead">Every item on the ${esc(scopeName())} auction houses, priced from the latest scan (${ago(S.meta.generatedAt)}; refreshed hourly). Prices are per unit. Trend lines cover the last ${S.meta.settings.hourlyKeepHours / 24} days of the busiest house.</p>
+    <p class="lead">Every item on the ${esc(scopeName())} auction houses, at the latest prices Blizzard has published. Prices are per unit. Trend lines cover the last ${S.meta.settings.hourlyKeepHours / 24} days of the busiest house.</p>
+    <p class="freshness">Data age: ${hids.map((h) => `<span>${esc(factionName(house(h) ?? { faction: "unknown" }))} ${freshness(house(h))}</span>`).join("")} <span class="note">Checked hourly.</span></p>
     <div class="filters">
       <label>Item<input id="m-q" type="search" placeholder="name or item id"></label>
       <label>Kind<select id="m-cls"><option value="">Everything</option>${classes.map((c) => `<option>${esc(c)}</option>`).join("")}</select></label>
@@ -614,7 +623,7 @@ async function viewHouses(el) {
     ${groups.map((g) => `<h2>${esc(all.find((h) => h.group === g).groupName)}</h2><div class="grid2">${all.filter((h) => h.group === g).map((h) => {
       const t = houses().find((x) => x.id === h.id);
       return t ? `<a class="housecard" href="#/house/${S.region}/${h.id}"><span class="fac ${h.faction}">${esc(h.name)}</span>
-        <div class="note">${t.listings ? `${t.listings.toLocaleString()} listings, ${t.items.toLocaleString()} items tracked` : "empty"} · scanned ${ago(t.lastScan)}</div></a>`
+        <div class="note">${t.listings ? `${t.listings.toLocaleString()} listings, ${t.items.toLocaleString()} items tracked` : "empty"} · data ${freshness(t)}</div></a>`
         : `<div class="housecard" style="opacity:.55"><span class="fac ${h.faction}">${esc(h.name)}</span><div class="note">#${h.id} · not tracked</div></div>`;
     }).join("")}</div>`).join("")}`;
 }
