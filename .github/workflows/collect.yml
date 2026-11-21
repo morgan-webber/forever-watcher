@@ -26,9 +26,6 @@ jobs:
       cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 40
-    environment:
-      name: github-pages
-      url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
 
@@ -97,11 +94,19 @@ jobs:
         with:
           path: _site
 
+  deploy:
+    needs: collect
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
       - id: deploy
         uses: actions/deploy-pages@v5
 
   next:
-    needs: collect
+    needs: [collect, deploy]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 75
