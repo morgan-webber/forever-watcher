@@ -14,6 +14,17 @@ const WEEK = 7 * 86_400_000;
 export const QUALITY = ["POOR", "COMMON", "UNCOMMON", "RARE", "EPIC", "LEGENDARY", "ARTIFACT", "HEIRLOOM"];
 export const ITEM_CLASS = { 0: "Consumable", 1: "Container", 2: "Weapon", 3: "Gem", 4: "Armor", 5: "Reagent", 6: "Projectile", 7: "Trade Goods", 9: "Recipe", 11: "Quiver", 12: "Quest", 13: "Key", 15: "Miscellaneous" };
 
+/** Blizzard's internal entries ("Test Profession [DNT]" = do not translate). */
+export const isInternal = (name) => /\[DNT\]|^test /i.test(String(name ?? ""));
+
+/** Drops internal professions/recipes from a stored catalog. */
+export function cleanCatalog(cat) {
+  if (!cat?.recipes) return cat;
+  const bad = new Set(Object.entries(cat.professions ?? {}).filter(([, p]) => isInternal(p.name)).map(([id]) => Number(id)));
+  const professions = Object.fromEntries(Object.entries(cat.professions ?? {}).filter(([id]) => !bad.has(Number(id))));
+  return { ...cat, professions, recipes: cat.recipes.filter((r) => !bad.has(r[2]) && !isInternal(r[1])) };
+}
+
 const buildOf = (json) => String(json?._links?.self?.href ?? "").match(/namespace=static-([\d._]+)-forever/)?.[1] ?? null;
 
 export async function refreshRecipes(client, current, { region = "us", locale = "en_US", now = Date.now(), log = console.log, concurrency = 8, force = false } = {}) {
@@ -27,7 +38,7 @@ export async function refreshRecipes(client, current, { region = "us", locale = 
 
   const professions = {};
   const tiers = [];
-  for (const p of idx.json.professions ?? []) {
+  for (const p of (idx.json.professions ?? []).filter((x) => !isInternal(x.name))) {
     const d = await client.get(region, `/data/wow/profession/${p.id}`, "static-forever", { locale });
     professions[p.id] = { name: p.name, type: d.json?.type?.type ?? null };
     for (const t of d.json?.skill_tiers ?? []) tiers.push({ prof: p.id, tier: t.id });

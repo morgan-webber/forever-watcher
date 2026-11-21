@@ -10,7 +10,7 @@ import { diffLifecycle } from "./lifecycle.js";
 import { emptyHistory, recordSnapshot, recordSales, recordTracking, prune } from "./history.js";
 import { backfillItems } from "./items.js";
 import { findOpportunities } from "./opportunities.js";
-import { refreshRecipes, refreshClientItems } from "./catalog.js";
+import { refreshRecipes, refreshClientItems, cleanCatalog } from "./catalog.js";
 import { findCrafts, findDisenchants, resolveVendorIds } from "./crafting.js";
 import { logOpportunities, evaluate, summarise as summariseBacktest } from "./backtest.js";
 import { collectAlerts, postDiscord } from "./alerts.js";
@@ -44,6 +44,7 @@ export async function collect({ client, config, stateDir, outDir, nowMs = Date.n
     const cat = await refreshRecipes(client, catalog, { region: firstRegion, locale: settings.regions[firstRegion].locale, now: nowMs, log });
     if (cat !== catalog) await writeJson(S("catalog.json.gz"), (catalog = cat));
   }
+  catalog = cleanCatalog(catalog);
   const recipeItemIds = new Set();
   for (const r of catalog?.recipes ?? []) {
     if (r[4]) recipeItemIds.add(r[4]);

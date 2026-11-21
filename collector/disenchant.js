@@ -58,7 +58,8 @@ export const DE_MATERIALS = [...new Set(Object.values(DE_TABLE).flatMap((rows) =
 
 /** Outcomes for an item, or null if it can't be disenchanted per the table. */
 export function outcomes(meta) {
-  if (!meta?.lvl) return null;
+  // Only Forever item levels (API or client table). Retail data rescales old items' levels.
+  if (!meta?.lvl || meta.src === "retail") return null;
   const isWeapon = meta.cid === 2 || meta.c === "Weapon";
   const isArmor = meta.cid === 4 || meta.c === "Armor";
   if (!isWeapon && !isArmor) return null;

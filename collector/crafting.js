@@ -115,12 +115,13 @@ export function findDisenchants(region, houses, items, settings, fees, nowMs) {
       const meta = items[baseId(key)];
       const de = deValue(meta, (name) => mat(name)?.unit ?? null, cut);
       if (!de || de.ev <= 0 || de.unpricedShare > 0.25) continue;
-      // Cap by how fast the main materials sell in this house (20 items at most per listing run).
+      // Cap by how fast the main materials sell in this house: at most 20 items, and only 5 while
+      // a main material's sales rate is still unknown.
       let cap = 20;
       for (const part of de.parts) {
         if (part.p < 0.2) continue;
         const spd = mat(part.name)?.m?.soldPerDay;
-        if (spd != null) cap = Math.min(cap, Math.max(1, Math.floor((spd * settings.horizonDays) / (part.p * part.avg))));
+        cap = spd == null ? Math.min(cap, 5) : Math.min(cap, Math.max(1, Math.floor((spd * settings.horizonDays) / (part.p * part.avg))));
       }
       const maxBuy = Math.floor(de.ev / (1 + settings.minRoi));
       if (ladder[0][0] > maxBuy) continue;

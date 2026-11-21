@@ -4,7 +4,7 @@ import { emptyHistory, recordSnapshot, recordSales, recordTracking } from "../co
 import { findCrafts, findDisenchants, resolveVendorIds } from "../collector/crafting.js";
 import { outcomes, deValue } from "../collector/disenchant.js";
 import { statsOf } from "../collector/summarise.js";
-import { parseCsv } from "../collector/catalog.js";
+import { parseCsv, cleanCatalog } from "../collector/catalog.js";
 
 const settings = { flipThreshold: 0.7, horizonDays: 3, minProfitCopper: 1, minRoi: 0.1, arbMinProfitCopper: 1, minSoldPerDay: 0.5, maxOppsPerRegion: 50, baselineDays: 14, velocityDays: 7 };
 const fees = { cutRate: 0.05, depositMinCopper: 1, depositVendorRate: 0 };
@@ -69,4 +69,11 @@ test("disenchant opportunity: buys greens priced under their material value", ()
 
 test("csv parser handles quotes, commas and newlines in fields", () => {
   assert.deepEqual(parseCsv('ID,Name\n1,"Bolt, Linen"\n2,"Say ""hi"""\n'), [["ID", "Name"], ["1", "Bolt, Linen"], ["2", 'Say "hi"']]);
+});
+
+test("retail-sourced items are never disenchant-valued; internal professions are dropped", () => {
+  assert.equal(outcomes({ lvl: 18, cid: 4, q: "UNCOMMON", src: "retail" }), null);
+  const c = cleanCatalog({ professions: { 197: { name: "Tailoring" }, 2933: { name: "Test Profession [DNT]" } }, recipes: [[1, "Bolt", 197, "", 2, 1, 1, []], [2, "x", 2933, "", 3, 1, 1, []]] });
+  assert.deepEqual(Object.keys(c.professions), ["197"]);
+  assert.equal(c.recipes.length, 1);
 });
