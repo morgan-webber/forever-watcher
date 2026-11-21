@@ -37,28 +37,33 @@ function percentile(ladder, total, p) {
 }
 
 /**
- * Market value: take the cheapest 15% of units (at least one unit), drop units priced above
- * 1.5x the median of that slice, return the quantity-weighted mean of the rest.
+ * Market value: a robust "what it really sells for" price.
+ * Take the cheapest 15% of units, extended so at least the 3 cheapest listings are included
+ * (each extra listing contributes a capped share so one huge stack can't dominate). Drop
+ * units priced below 0.5x or above 1.5x the slice's median (troll and bait listings), and
+ * return the quantity-weighted mean of the rest. A lone 1c listing can't set the value.
  */
 export function marketValue(ladder, total) {
   const want = Math.max(1, Math.ceil(total * 0.15));
+  const minListings = Math.min(3, ladder.length);
+  const share = Math.max(1, Math.round(want / 3));
   const slice = [];
   let took = 0;
   for (const [u, q] of ladder) {
-    const n = Math.min(q, want - took);
+    if (took >= want && slice.length >= minListings) break;
+    const n = took < want ? Math.min(q, want - took) : Math.min(q, share);
     slice.push([u, n]);
     took += n;
-    if (took >= want) break;
   }
   const med = percentile(slice, took, 0.5);
   let sum = 0;
   let cnt = 0;
   for (const [u, n] of slice) {
-    if (u > med * 1.5) continue;
+    if (u > med * 1.5 || u < med * 0.5) continue;
     sum += u * n;
     cnt += n;
   }
-  return Math.round(cnt ? sum / cnt : slice[0][0]);
+  return Math.round(cnt ? sum / cnt : med);
 }
 
 /** entries: iterable of [key, unit, qty] (unit null = bid-only, skipped). Returns Map key -> sorted [[unit, qty]]. */

@@ -4,11 +4,13 @@
  *   opps-<region>.json                 ranked opportunities (with item names for display)
  *   index-<region>.json                [baseId, name, quality, icon, class, vendor, variants] for search
  *   houses/<region>-<id>.json          current market table for one house
- *   items/<region>/<baseId>.json       history + metrics per variant (bonus list) per house
+ *   items/<region>/<baseId>.json       history + metrics + current listing ladder per variant per house
+ *   market-<region>.json               every listed item: current prices per house, trends, sparkline
+ *   pulse-<region>.json                market-wide activity per house over time
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
-import { metrics, H, toHour } from "./history.js";
+import { metrics, H, D, toHour, toDay } from "./history.js";
 import { baseId } from "./summarise.js";
 
 const r3 = (x) => (x == null ? null : Math.round(x * 1000) / 1000);
@@ -67,11 +69,18 @@ export async function publish({ outDir, regions, items, settings, fees, backtest
         vmap[key][h.id] = {
           h: e.h,
           d: e.d,
+          l: listed ? (R.ladders?.get(h.id)?.get(key) ?? []).slice(0, 40) : [],
           m: m && { baseline: m.baseline, soldPerDay: r3(m.soldPerDay), sellThrough: r3(m.sellThrough), cv: r3(m.cv), chg24: r3(m.chg24), historyDays: m.historyDays, listed },
         };
       }
       await write(path.join(dataDir, "houses", `${region}-${h.id}.json`), { house: h, rows });
     }
+    const { market, pulse, span } = buildMarket(R, nowMs, settings);
+    await write(path.join(dataDir, `market-${region}.json`), { houses: R.houses.map((h) => h.id), rows: market });
+    await write(path.join(dataDir, `pulse-${region}.json`), pulse);
+    meta.regions[region].historyHours = span.hours;
+    meta.regions[region].trackedHours = span.tracked;
+
     for (const [b, vmap] of perItem) {
       await write(path.join(dataDir, "items", region, `${b}.json`), { base: b, variants: vmap });
     }
@@ -82,4 +91,106 @@ export async function publish({ outDir, regions, items, settings, fees, backtest
 function pick(s) {
   const { flipThreshold, horizonDays, minProfitCopper, minRoi, arbMinProfitCopper, minSoldPerDay, baselineDays, velocityDays, hourlyKeepHours, groupNames } = s;
   return { flipThreshold, horizonDays, minProfitCopper, minRoi, arbMinProfitCopper, minSoldPerDay, baselineDays, velocityDays, hourlyKeepHours, groupNames };
+}
+
+/** 7-day change of daily market value (today vs the closest day at least 7 days back). */
+function change7(e, nowMs) {
+  const today = toDay(nowMs);
+  const cur = e.d.at(-1);
+  if (!cur || cur[D.MV] == null) return null;
+  for (let i = e.d.length - 1; i >= 0; i--) {
+    const r = e.d[i];
+    if (r[D.DAY] <= today - 7 && r[D.MV]) return cur[D.MV] / r[D.MV] - 1;
+  }
+  return null;
+}
+
+/** Hourly market values downsampled to one point per 4 hours (last value in each bucket). */
+function spark(e) {
+  const out = [];
+  let bucket = null;
+  for (const p of e.h) {
+    const b = Math.floor(p[H.HOUR] / 4);
+    if (b !== bucket) out.push(p[H.MV]);
+    else out[out.length - 1] = p[H.MV];
+    bucket = b;
+  }
+  return out;
+}
+
+function buildMarket(R, nowMs, settings) {
+  const nowHour = toHour(nowMs);
+  const ids = R.houses.map((h) => h.id);
+  const keys = new Set();
+  for (const id of ids) for (const [k, e] of Object.entries(R.hists.get(id)?.items ?? {})) if (e.h.at(-1)?.[H.HOUR] >= nowHour - 2) keys.add(k);
+  const market = [];
+  for (const key of keys) {
+    const per = [];
+    let main = null;
+    let mainQty = -1;
+    let gold = 0;
+    let spdSum = 0;
+    let anySpd = false;
+    for (const id of ids) {
+      const hist = R.hists.get(id);
+      const e = hist?.items?.[key];
+      const last = e?.h.at(-1);
+      if (!last || last[H.HOUR] < nowHour - 2) {
+        per.push(null);
+        continue;
+      }
+      const m = metrics(hist, key, nowMs, settings);
+      per.push([last[H.MIN], last[H.MV], last[H.QTY], last[H.N], r3(m?.soldPerDay)]);
+      if (m?.soldPerDay != null) {
+        anySpd = true;
+        spdSum += m.soldPerDay;
+        gold += m.soldPerDay * last[H.MV];
+      }
+      // The reference house for trends: the one with the most sales, then the most listed.
+      const score = (m?.soldPerDay ?? 0) * 1e9 + last[H.QTY];
+      if (score > mainQty) {
+        mainQty = score;
+        main = { e, m, last, i: per.length - 1 };
+      }
+    }
+    const m = main.m;
+    market.push([
+      key, per, m?.baseline ?? null, r3(m?.chg24), r3(change7(main.e, nowMs)), anySpd ? r3(spdSum) : null, r3(m?.sellThrough), r3(m?.cv),
+      anySpd ? Math.round(gold) : null, m?.avgQty ? r3(main.last[H.QTY] / m.avgQty) : null,
+      // Sparklines only where there's enough trade to make one meaningful (keeps the file small).
+      main.last[H.QTY] >= 5 || spdSum >= 0.5 ? spark(main.e) : null,
+      main.i,
+    ]);
+  }
+  // Pulse: totals per house per hour (listed units, listings) and per day (estimated sales).
+  let minHour = Infinity;
+  let tracked = 0;
+  const pulse = { houses: [] };
+  for (const h of R.houses) {
+    const hist = R.hists.get(h.id);
+    const hours = new Map();
+    const days = new Map();
+    for (const e of Object.values(hist?.items ?? {})) {
+      for (const p of e.h) {
+        const t = hours.get(p[H.HOUR]) ?? [0, 0];
+        t[0] += p[H.QTY];
+        t[1] += p[H.N];
+        hours.set(p[H.HOUR], t);
+        if (p[H.HOUR] < minHour) minHour = p[H.HOUR];
+      }
+      for (const r of e.d) {
+        const t = days.get(r[D.DAY]) ?? [0, 0];
+        t[0] += r[D.SOLD];
+        t[1] += r[D.SOLDV];
+        days.set(r[D.DAY], t);
+      }
+    }
+    tracked = Math.max(tracked, Object.values(hist?.track ?? {}).reduce((a, b) => a + b, 0));
+    pulse.houses.push({
+      id: h.id,
+      hours: [...hours].sort((a, b) => a[0] - b[0]).map(([k, v]) => [k, ...v]),
+      days: [...days].sort((a, b) => a[0] - b[0]).map(([k, v]) => [k, ...v]),
+    });
+  }
+  return { market, pulse, span: { hours: Number.isFinite(minHour) ? nowHour - minHour + 1 : 0, tracked: r3(tracked) } };
 }

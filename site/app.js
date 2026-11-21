@@ -46,6 +46,18 @@ const itemCell = (name, q, icon, sub = "") =>
   `<span class="item"><span class="icon" style="background-image:url('${iconUrl(icon)}')"></span><span><span class="q-${esc(q)}">${esc(name)}</span>${sub ? `<div class="sub">${sub}</div>` : ""}</span></span>`;
 const goldToCopper = (g) => Math.round(Number(g || 0) * 10000);
 
+function sparkline(vals, { w = 104, h = 26 } = {}) {
+  const v = (vals ?? []).filter((x) => x != null);
+  if (v.length < 2) return '<span class="muted spark-empty">gathering</span>';
+  const lo = Math.min(...v), hi = Math.max(...v), span = hi - lo || 1;
+  const pts = v.map((x, i) => `${((i / (v.length - 1)) * (w - 4) + 2).toFixed(1)},${(h - 3 - ((x - lo) / span) * (h - 6)).toFixed(1)}`);
+  const up = v.at(-1) >= v[0];
+  const col = up ? "#8fd49a" : "#e0704a";
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="${up ? "rising" : "falling"} trend"><polyline points="${pts.join(" ")}" fill="none" stroke="${col}" stroke-width="1.6" stroke-linejoin="round"/><circle cx="${pts.at(-1).split(",")[0]}" cy="${pts.at(-1).split(",")[1]}" r="2.4" fill="${col}"/></svg>`;
+}
+const FACTION_COLOR = { alliance: "#6f9cf2", horde: "#e2675a", neutral: "#e3b85c", unknown: "#b9aa8c" };
+const factionName = (h) => (h.faction === "neutral" ? "Blackwater" : h.faction[0].toUpperCase() + h.faction.slice(1));
+
 // ---------- app state ----------
 const S = {
   meta: null,
@@ -69,9 +81,11 @@ async function index() {
 }
 
 // ---------- sortable table ----------
-function table(cols, rows, { sortKey, desc = true, onRow, empty = "Nothing here yet." } = {}) {
+function table(cols, rows, { sortKey, desc = true, onRow, empty = "Nothing here yet.", limit = 250, compact = false } = {}) {
   const wrap = document.createElement("div");
-  wrap.className = "tablewrap";
+  wrap.className = "tablewrap" + (compact ? " compact" : "");
+  const pos = new Map(rows.map((r, i) => [r, i]));
+  let shown = limit;
   let key = sortKey ?? cols.find((c) => c.sort)?.key;
   let dir = desc ? -1 : 1;
   const render = () => {
@@ -83,15 +97,18 @@ function table(cols, rows, { sortKey, desc = true, onRow, empty = "Nothing here 
       return (x > y ? 1 : x < y ? -1 : 0) * dir;
     }) : rows;
     wrap.innerHTML = `<table><thead><tr>${cols.map((c) => `<th data-k="${c.key}" class="${c.num ? "num" : ""} ${c.key === key ? `sorted ${dir > 0 ? "asc" : ""}` : ""}" title="${esc(c.title ?? "")}">${esc(c.label)}</th>`).join("")}</tr></thead>
-      <tbody>${sorted.length ? sorted.slice(0, 1000).map((r, i) => `<tr data-i="${rows.indexOf(r)}">${cols.map((c) => `<td class="${c.num ? "num" : ""}">${c.html(r, i)}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${cols.length}" class="empty">${empty}</td></tr>`}</tbody></table>`;
+      <tbody>${sorted.length ? sorted.slice(0, shown).map((r, i) => `<tr data-i="${pos.get(r)}">${cols.map((c) => `<td class="${c.num ? "num" : ""}">${c.html(r, i)}</td>`).join("")}</tr>`).join("") : `<tr><td colspan="${cols.length}" class="empty">${empty}</td></tr>`}
+      ${sorted.length > shown ? `<tr class="more-row"><td colspan="${cols.length}"><button class="ghost more">Show ${Math.min(limit, sorted.length - shown).toLocaleString()} more · ${sorted.length.toLocaleString()} in all</button></td></tr>` : ""}</tbody></table>`;
   };
   wrap.addEventListener("click", (e) => {
+    if (e.target.closest(".more")) { shown += limit; render(); return; }
     const th = e.target.closest("th");
     if (th) {
       const c = cols.find((x) => x.key === th.dataset.k);
       if (!c?.sort) return;
       if (key === c.key) dir = -dir;
       else { key = c.key; dir = -1; }
+      shown = limit;
       render();
       return;
     }
@@ -108,6 +125,16 @@ const TYPE_INFO = {
   arbitrage: "Bought in one house, relisted in another house of the same ruleset group.",
   vendor: "Listed below the vendor sell price: buy and sell to any merchant.",
 };
+
+function warmup() {
+  const r = S.meta.regions[S.region];
+  const hrs = r.historyHours ?? 0, tracked = r.trackedHours ?? 0;
+  const need = 12;
+  const p = Math.min(1, hrs / need);
+  return `<div class="warmup"><b>Still gathering history.</b> Flips and arbitrage need a price baseline (about ${need} hourly scans) and a few hours of sales tracking.
+    <div class="bar"><span style="width:${(p * 100).toFixed(0)}%"></span></div>
+    <span class="note">${hrs} of ${need} hours of price history · ${fixed(tracked)} hours of sales tracked. Meanwhile, browse live prices in <a href="#/market">Market</a>.</span></div>`;
+}
 
 async function viewOpps(el) {
   const [opps, idx] = await Promise.all([load(`opps-${S.region}.json`), index()]);
@@ -135,6 +162,7 @@ async function viewOpps(el) {
       <label>Max capital (g)<input id="f-maxCost" type="number" min="0" step="10" placeholder="any"></label>
       <label>Item<input id="f-q" type="search" placeholder="filter by name"></label>
     </div>
+    ${(S.meta.regions[S.region].historyHours ?? 0) < 12 ? `<div class="frame warm-frame">${warmup()}</div>` : ""}
     <div id="opps-table"></div>
     <p class="note">Fees: ${pct(S.meta.fees.cutRate, 1)} AH cut, deposit ${pct(S.meta.fees.depositVendorRate)} of vendor price (min ${money(S.meta.fees.depositMinCopper)}).${S.meta.fees.verified ? "" : " <b>Not yet verified for WoW: Forever</b>: see Status."} Relist prices undercut the cheapest competing listing left after your purchase.</p>`;
   for (const [k, v] of Object.entries(f)) { const i = $(`#f-${k}`, el); if (i) i.value = v; }
@@ -163,7 +191,7 @@ async function viewOpps(el) {
       { key: "roi", label: "ROI", num: true, html: (o) => pct(o.roi), sort: (o) => o.roi },
       { key: "days", label: "Days", num: true, title: "Estimated days to sell the units", html: (o) => (o.type === "vendor" ? "0" : fixed(o.days)), sort: (o) => o.days },
       { key: "grade", label: "Grade", html: (o) => `<span class="grade ${o.grade}" title="A: lots of history, steady price and sales · D: thin data">${o.grade}</span>`, sort: (o) => grades.indexOf(o.grade) },
-    ], rows, { sortKey: "ev", onRow: (o) => (location.hash = itemHref(S.region, o.key)), empty: opps.length ? "No opportunities match these filters." : "No opportunities yet. Flips and arbitrage need about a day of price and sales history." });
+    ], rows, { sortKey: "ev", onRow: (o) => (location.hash = itemHref(S.region, o.key)), empty: opps.length ? "No opportunities match these filters." : (S.meta.regions[S.region].historyHours ?? 0) < 12 ? "Nothing flagged yet." : "No trades clear the profit and ROI bars right now." });
     $("#opps-table", el).replaceChildren(t);
   };
   el.addEventListener("input", (e) => { if (e.target.closest(".filters")) draw(); });
@@ -171,18 +199,34 @@ async function viewOpps(el) {
 }
 
 let chart = null;
+let depth = null;
 async function viewItem(el, region, base, variantKey) {
   if (region !== S.region) setRegion(region);
   const idx = await index();
   const info = idx.get(base) ?? { name: `Item ${base}`, q: "COMMON" };
   let file;
   try { file = await load(`items/${region}/${base}.json`); } catch { el.innerHTML = `<p class="empty">No market data for item ${esc(base)} in ${region.toUpperCase()} yet.</p>`; return; }
-  const vkeys = Object.keys(file.variants).sort((a, b) => (a === base ? -1 : b === base ? 1 : Object.keys(file.variants[b]).length - Object.keys(file.variants[a]).length || a.localeCompare(b)));
   const listedCount = (k) => Object.values(file.variants[k]).filter((v) => v.m?.listed).reduce((n, v) => n + (v.h.at(-1)?.[3] ?? 0), 0);
-  let vkey = variantKey && file.variants[variantKey] ? variantKey : vkeys.slice().sort((a, b) => listedCount(b) - listedCount(a))[0];
+  const vkeys = Object.keys(file.variants).sort((a, b) => (a === base ? -1 : b === base ? 1 : listedCount(b) - listedCount(a)));
+  const vkey = variantKey && file.variants[variantKey] ? variantKey : vkeys.slice().sort((a, b) => listedCount(b) - listedCount(a))[0];
   const data = { houses: file.variants[vkey] };
   const hs = Object.entries(data.houses).map(([hid, v]) => ({ hid: Number(hid), ...v, last: v.h.at(-1) })).filter((x) => house(x.hid));
+  const rows = hs.sort((a, b) => (b.m?.soldPerDay ?? 0) - (a.m?.soldPerDay ?? 0) || (b.last?.[3] ?? 0) - (a.last?.[3] ?? 0));
+  const listedRows = rows.filter((x) => x.m?.listed);
+  const main = listedRows.slice().sort((a, b) => b.last[3] - a.last[3])[0] ?? rows[0];
+  const cheapest = listedRows.slice().sort((a, b) => a.last[2] - b.last[2])[0];
+  const ch7 = (() => {
+    const d = main?.d ?? [];
+    const cur = d.at(-1);
+    if (!cur?.[1]) return null;
+    const today = Math.floor(Date.now() / 86400000);
+    for (let i = d.length - 1; i >= 0; i--) if (d[i][0] <= today - 7 && d[i][1]) return cur[1] / d[i][1] - 1;
+    return null;
+  })();
+  const spd = listedRows.reduce((s, x) => s + (x.m?.soldPerDay ?? 0), 0);
+  const anySpd = rows.some((x) => x.m?.soldPerDay != null);
   const watched = S.watch.find((w) => w.region === region && w.key === vkey);
+  const stat = (k, v, n = "") => `<div class="card stat"><div class="k">${k}</div><div class="v">${v}</div>${n ? `<div class="note">${n}</div>` : ""}</div>`;
   el.innerHTML = `
     <div class="itemhead"><span class="icon lg" style="background-image:url('${iconUrl(info.icon)}')"></span>
       <div><h1 class="q-${esc(info.q)}">${esc(info.name)}</h1><div class="meta">${esc(info.cls ?? "Item")} · #${esc(base)}${info.sell != null ? ` · vendors for ${money(info.sell)}` : ""} · ${region.toUpperCase()}</div></div>
@@ -192,61 +236,130 @@ async function viewItem(el, region, base, variantKey) {
       </div>
     </div>
     ${vkeys.length > 1 ? `<div class="variant-bar"><label class="note" for="v-sel">Variant (random suffixes are priced separately)</label><select id="v-sel">${vkeys.map((k) => `<option value="${esc(k)}" ${k === vkey ? "selected" : ""}>${k === base ? "Plain" : `Bonus ${esc(bonusOf(k))}`} · ${listedCount(k).toLocaleString()} listed</option>`).join("")}</select></div>` : ""}
+    <div class="cards stats">
+      ${stat("Lowest now", cheapest ? money(cheapest.last[2]) : "not listed", cheapest ? factionName(house(cheapest.hid)) : "")}
+      ${stat("Market value", main?.m?.listed ? money(main.last[1]) : "–", main ? `${factionName(house(main.hid))}, busiest house` : "")}
+      ${stat("Baseline", money(main?.m?.baseline), `${S.meta.settings.baselineDays}-day average`)}
+      ${stat("Change", `${signed(main?.m?.chg24)} <span class="note">24h</span>`, `${ch7 == null ? "–" : signed(ch7)} over 7 days`)}
+      ${stat("Sold a day", anySpd ? fixed(spd) : "–", anySpd && main?.m?.listed ? `≈ ${money(spd * main.last[1], { plain: true })} traded daily` : "needs a few hours of scans")}
+      ${stat("Volatility", main?.m?.cv == null ? "–" : pct(main.m.cv), "day-to-day swing in value")}
+    </div>
     <div class="chartbox">
-      <div class="chartbar"><select id="c-house" aria-label="House"></select><div class="tabs" id="c-range"><button data-r="h">Hourly · ${S.meta.settings.hourlyKeepHours / 24} days</button><button data-r="30">30 days</button><button data-r="365">A year</button></div><span class="note" id="c-note"></span></div>
+      <div class="chartbar">
+        <select id="c-house" aria-label="House"></select>
+        <div class="tabs" id="c-range"><button data-r="h">Hourly · ${S.meta.settings.hourlyKeepHours / 24} days</button><button data-r="30">30 days</button><button data-r="365">A year</button></div>
+        <label class="toggle"><input type="checkbox" id="c-qty"> Listed quantity</label>
+        <label class="toggle"><input type="checkbox" id="c-ma"> Moving average</label>
+        <span class="note" id="c-note"></span>
+      </div>
       <div id="chart"></div>
     </div>
-    <h2>Across houses</h2><div id="item-houses"></div>
-    <p class="note">Baseline is the mean daily market value over ${S.meta.settings.baselineDays} days. Sold per day and sell-through are estimated from auctions that vanish between scans, so sell-through errs low.</p>`;
+    <div class="grid2 wide-left">
+      <div><h2>Order book</h2><div class="chartbox"><div class="chartbar"><span class="note" id="d-note"></span></div><div id="depth"></div></div></div>
+      <div><h2>Across houses</h2><div id="item-houses"></div></div>
+    </div>
+    <p class="note">The order book shows the cheapest current listings, stacked from the lowest price up: how many units you could buy before the price reaches each level. Sold per day and sell-through are estimated from auctions that vanish between scans, so sell-through errs low.</p>`;
   $("#v-sel", el)?.addEventListener("change", (e) => (location.hash = itemHref(region, e.target.value)));
 
-  const rows = hs.sort((a, b) => (b.m?.soldPerDay ?? 0) - (a.m?.soldPerDay ?? 0));
   const sel = $("#c-house", el);
   $("#item-houses", el).replaceChildren(table([
     { key: "house", label: "House", html: (x) => houseLabel(x.hid), sort: (x) => x.hid },
     { key: "min", label: "Lowest", num: true, html: (x) => (x.m?.listed ? money(x.last[2]) : '<span class="muted">not listed</span>'), sort: (x) => (x.m?.listed ? x.last[2] : null) },
-    { key: "mv", label: "Market value", num: true, html: (x) => (x.m?.listed ? money(x.last[1]) : "–"), sort: (x) => (x.m?.listed ? x.last[1] : null) },
-    { key: "base", label: "Baseline", num: true, html: (x) => money(x.m?.baseline), sort: (x) => x.m?.baseline },
+    { key: "mv", label: "Value", num: true, html: (x) => (x.m?.listed ? money(x.last[1]) : "–"), sort: (x) => (x.m?.listed ? x.last[1] : null) },
     { key: "qty", label: "Listed", num: true, html: (x) => (x.m?.listed ? x.last[3].toLocaleString() : "0"), sort: (x) => (x.m?.listed ? x.last[3] : 0) },
-    { key: "spd", label: "Sold a day", num: true, html: (x) => fixed(x.m?.soldPerDay), sort: (x) => x.m?.soldPerDay },
-    { key: "st", label: "Sell-through", num: true, html: (x) => pct(x.m?.sellThrough), sort: (x) => x.m?.sellThrough },
-    { key: "chg", label: "24 hours", num: true, html: (x) => signed(x.m?.chg24), sort: (x) => x.m?.chg24 },
+    { key: "spd", label: "Sold/day", num: true, html: (x) => fixed(x.m?.soldPerDay), sort: (x) => x.m?.soldPerDay },
+    { key: "st", label: "Sell-thru", num: true, html: (x) => pct(x.m?.sellThrough), sort: (x) => x.m?.sellThrough },
   ], rows, { sortKey: "spd", onRow: (x) => { sel.value = x.hid; draw(); } }));
 
-  sel.innerHTML = rows.map((x) => `<option value="${x.hid}">${esc(house(x.hid).name)} · ${esc(house(x.hid).groupName)}</option>`).join("");
-  const pref = rows.find((x) => inGroup(x.hid) && x.m?.listed) ?? rows[0];
-  if (pref) sel.value = pref.hid;
+  sel.innerHTML = `${rows.length > 1 ? '<option value="all">All houses, side by side</option>' : ""}${rows.map((x) => `<option value="${x.hid}">${esc(factionName(house(x.hid)))} · ${esc(house(x.hid).groupName)}</option>`).join("")}`;
+  sel.value = store.get("itemHouse", "all") === "all" && rows.length > 1 ? "all" : String(main?.hid ?? rows[0]?.hid);
   let range = store.get("range", "h");
+  const qtyBox = $("#c-qty", el), maBox = $("#c-ma", el);
+  qtyBox.checked = store.get("showQty", false);
+  maBox.checked = store.get("showMa", true);
+  const axisBase = { stroke: "#b9aa8c", font: "14px Alegreya, Georgia, serif", grid: { stroke: "rgba(227,184,92,.10)" }, ticks: { stroke: "rgba(227,184,92,.25)" } };
+  const fmt = (u, v) => (v == null ? "–" : money(v * 10000, { plain: true }));
+  const gAxis = { ...axisBase, values: (u, vals) => vals.map((v) => `${+v.toFixed(4)}g`), size: 74 };
+
+  const seriesOf = (x, which) => {
+    // which: "h" hourly or day count. Returns { t, mv, mn, qty }
+    if (which === "h") return { t: x.h.map((p) => p[0] * 3600), mv: x.h.map((p) => p[1] / 10000), mn: x.h.map((p) => p[2] / 10000), qty: x.h.map((p) => p[3]) };
+    const minDay = Math.floor(Date.now() / 86400000) - Number(which);
+    const d = x.d.filter((r) => r[0] >= minDay);
+    return { t: d.map((r) => r[0] * 86400), mv: d.map((r) => (r[1] == null ? null : r[1] / 10000)), mn: d.map((r) => (r[2] == null ? null : r[2] / 10000)), qty: d.map((r) => r[3]), sold: d.map((r) => r[4]) };
+  };
+  const movingAvg = (vals, n) => vals.map((_, i) => {
+    const w = vals.slice(Math.max(0, i - n + 1), i + 1).filter((v) => v != null);
+    return w.length >= Math.min(n, 3) ? w.reduce((a, b) => a + b, 0) / w.length : null;
+  });
+
   const draw = () => {
+    store.set("itemHouse", sel.value === "all" ? "all" : "one");
+    store.set("showQty", qtyBox.checked);
+    store.set("showMa", maBox.checked);
     for (const b of el.querySelectorAll("#c-range button")) b.classList.toggle("on", b.dataset.r === range);
-    const x = data.houses[sel.value];
     const box = $("#chart", el);
     chart?.destroy();
     chart = null;
-    if (!x) { box.innerHTML = '<p class="empty">No history in this house yet.</p>'; return; }
-    let t, mv, mn, sold = null;
-    if (range === "h") {
-      t = x.h.map((p) => p[0] * 3600); mv = x.h.map((p) => p[1] / 10000); mn = x.h.map((p) => p[2] / 10000);
+    let opts, arr;
+    const width = Math.max(300, box.clientWidth || el.clientWidth - 40);
+    if (sel.value === "all") {
+      // Every house's market value on one time axis.
+      const per = rows.map((x) => ({ x, s: seriesOf(x, range) }));
+      const ts = [...new Set(per.flatMap((p) => p.s.t))].sort((a, b) => a - b);
+      arr = [ts, ...per.map((p) => { const m = new Map(p.s.t.map((t, i) => [t, p.s.mv[i]])); return ts.map((t) => m.get(t) ?? null); })];
+      const series = [{}, ...per.map((p) => ({ label: `${factionName(house(p.x.hid))}`, stroke: FACTION_COLOR[house(p.x.hid).faction], width: 2, spanGaps: true, points: { show: false }, value: fmt }))];
+      opts = { width, height: 330, series, axes: [axisBase, gAxis], scales: { x: { time: true } } };
+      $("#c-note", el).textContent = ts.length < 2 ? "Not enough history for this range yet: the chart fills in hour by hour." : "Market value in each house";
     } else {
-      const minDay = Math.floor(Date.now() / 86400000) - Number(range);
-      const d = x.d.filter((r) => r[0] >= minDay);
-      t = d.map((r) => r[0] * 86400); mv = d.map((r) => (r[1] == null ? null : r[1] / 10000)); mn = d.map((r) => (r[2] == null ? null : r[2] / 10000)); sold = d.map((r) => r[4]);
+      const x = data.houses[sel.value];
+      if (!x) { box.innerHTML = '<p class="empty">No history in this house yet.</p>'; return; }
+      const s = seriesOf(x, range);
+      arr = [s.t, s.mv, s.mn];
+      const series = [{}, { label: "Market value", stroke: "#e3b85c", width: 2.5, fill: "rgba(227,184,92,.08)", points: { show: false }, value: fmt },
+        { label: "Lowest listing", stroke: "#58a79c", width: 1.5, dash: [5, 4], points: { show: false }, value: fmt }];
+      const axes = [axisBase, gAxis];
+      if (maBox.checked) {
+        arr.push(movingAvg(s.mv, range === "h" ? 24 : 7));
+        series.push({ label: range === "h" ? "24h average" : "7-day average", stroke: "#f0e4c8", width: 1.5, dash: [2, 3], points: { show: false }, value: fmt });
+      }
+      if (qtyBox.checked) {
+        arr.push(s.qty);
+        series.push({ label: "Listed", stroke: "#a98bd6", width: 1.2, scale: "q", points: { show: false }, value: (u, v) => (v == null ? "–" : v.toLocaleString()) });
+        axes.push({ ...axisBase, scale: "q", side: 1, grid: { show: false }, size: 56 });
+      } else if (s.sold) {
+        arr.push(s.sold);
+        series.push({ label: "Estimated sold", stroke: "#8fd49a", width: 1, scale: "n", paths: uPlot.paths.bars({ size: [0.55, 26] }), fill: "rgba(143,212,154,.25)" });
+        axes.push({ ...axisBase, scale: "n", side: 1, grid: { show: false }, size: 46 });
+      }
+      opts = { width, height: 330, series, axes, scales: { x: { time: true } } };
+      $("#c-note", el).textContent = s.t.length < 2 ? "Not enough history for this range yet: the chart fills in hour by hour." : "";
     }
-    $("#c-note", el).textContent = t.length < 2 ? "Not enough history for this range yet: the chart fills in hour by hour." : "";
-    const axis = { stroke: "#b9aa8c", font: "14px Alegreya, Georgia, serif", grid: { stroke: "rgba(227,184,92,.10)" }, ticks: { stroke: "rgba(227,184,92,.25)" } };
-    const fmt = (u, v) => (v == null ? "–" : money(v * 10000, { plain: true }));
-    const series = [{}, { label: "Market value", stroke: "#e3b85c", width: 2.5, fill: "rgba(227,184,92,.08)", points: { show: false }, value: fmt },
-      { label: "Lowest listing", stroke: "#58a79c", width: 1.5, dash: [5, 4], points: { show: false }, value: fmt }];
-    const dataArr = [t, mv, mn];
-    const axes = [axis, { ...axis, values: (u, vals) => vals.map((v) => `${+v.toFixed(4)}g`), size: 70 }];
-    if (sold) {
-      series.push({ label: "Estimated sold", stroke: "#8fd49a", width: 1, scale: "n", paths: uPlot.paths.bars({ size: [0.55, 26] }), fill: "rgba(143,212,154,.25)" });
-      dataArr.push(sold);
-      axes.push({ ...axis, scale: "n", side: 1, grid: { show: false }, size: 46 });
-    }
-    chart = new uPlot({ width: Math.max(300, box.clientWidth || el.clientWidth - 40), height: 320, series, axes, scales: { x: { time: true } }, legend: { live: true }, cursor: { drag: { x: true, y: false } } }, dataArr, box);
+    chart = new uPlot({ ...opts, legend: { live: true }, cursor: { drag: { x: true, y: false } } }, arr, box);
+    drawDepth();
   };
+
+  const drawDepth = () => {
+    const box = $("#depth", el);
+    depth?.destroy();
+    depth = null;
+    const pick = sel.value === "all" ? rows.filter((x) => x.l?.length) : [data.houses[sel.value] && { hid: Number(sel.value), ...data.houses[sel.value] }].filter((x) => x?.l?.length);
+    if (!pick.length) { box.innerHTML = '<p class="empty">Nothing listed right now.</p>'; $("#d-note", el).textContent = ""; return; }
+    // Shared x: cumulative units. Each house gets a stepped price curve.
+    const curves = pick.map((x) => { let c = 0; return { x, pts: x.l.map(([u, q]) => [(c += q), u / 10000]) }; });
+    const xs = [0, ...new Set(curves.flatMap((c) => c.pts.map((p) => p[0])))].sort((a, b) => a - b);
+    const arr = [xs, ...curves.map((c) => xs.map((q) => { const p = c.pts.find((pt) => pt[0] >= q); return p ? p[1] : null; }))];
+    depth = new uPlot({
+      width: Math.max(280, box.clientWidth || 400), height: 240,
+      series: [{ label: "Units", value: (u, v) => (v == null ? "–" : `${v.toLocaleString()} units`) }, ...curves.map((c) => ({ label: factionName(house(c.x.hid)), stroke: FACTION_COLOR[house(c.x.hid).faction], width: 2, fill: `${FACTION_COLOR[house(c.x.hid).faction]}22`, paths: uPlot.paths.stepped({ align: -1 }), points: { show: false }, value: fmt }))],
+      axes: [{ ...axisBase, values: (u, v) => v.map((n) => n.toLocaleString()) }, gAxis], scales: { x: { time: false } }, legend: { live: true },
+    }, arr, box);
+    $("#d-note", el).textContent = `Cheapest ${Math.max(...pick.map((x) => x.l.length))} listings`;
+  };
+
   sel.addEventListener("change", draw);
+  qtyBox.addEventListener("change", draw);
+  maBox.addEventListener("change", draw);
   $("#c-range", el).addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) { range = b.dataset.r; store.set("range", range); draw(); } });
   $("#w-btn", el).addEventListener("click", () => {
     const i = S.watch.findIndex((w) => w.region === region && w.key === vkey);
@@ -260,6 +373,120 @@ async function viewItem(el, region, base, variantKey) {
     if (w) { w.target = e.target.value ? goldToCopper(e.target.value) : null; store.set("watch", S.watch); }
   });
   requestAnimationFrame(draw);
+}
+
+// ---------- market (latest snapshot, every item) ----------
+async function loadMarket() {
+  const [m, idx] = await Promise.all([load(`market-${S.region}.json`), index()]);
+  const hids = m.houses;
+  return { hids, idx, rows: m.rows.map((r) => {
+    const info = idx.get(baseOf(r[0])) ?? { name: `Item ${baseOf(r[0])}`, q: "COMMON" };
+    const per = r[1];
+    const mins = per.filter(Boolean).map((p) => p[0]);
+    const lo = Math.min(...mins), hi = Math.max(...mins);
+    return { key: r[0], info, per, base: r[2], chg24: r[3], chg7: r[4], spd: r[5], st: r[6], cv: r[7], gold: r[8], supply: r[9], spark: r[10],
+      main: r[11] ?? 0, mainLo: per[r[11] ?? 0]?.[0] ?? null, lo, qty: per.reduce((s, p) => s + (p?.[2] ?? 0), 0), spread: mins.length > 1 && lo > 0 ? hi / lo - 1 : null, mv: Math.max(...per.filter(Boolean).map((p) => p[1])) };
+  }) };
+}
+
+async function viewMarket(el) {
+  const { hids, idx, rows } = await loadMarket();
+  const classes = [...new Set([...idx.values()].map((i) => i.cls).filter(Boolean))].sort();
+  const f = store.get("mktFilters", { q: "", cls: "", qual: "", minSpd: "", minPrice: "", maxPrice: "", minSpread: "" });
+  el.innerHTML = `
+    <h1 class="illumined">Market</h1>
+    <p class="lead">Every item on the ${esc(scopeName())} auction houses, priced from the latest scan (${ago(S.meta.generatedAt)}; refreshed hourly). Prices are per unit. Trend lines cover the last ${S.meta.settings.hourlyKeepHours / 24} days of the busiest house.</p>
+    <div class="filters">
+      <label>Item<input id="m-q" type="search" placeholder="name or item id"></label>
+      <label>Kind<select id="m-cls"><option value="">Everything</option>${classes.map((c) => `<option>${esc(c)}</option>`).join("")}</select></label>
+      <label>Quality<select id="m-qual"><option value="">Any</option>${["POOR", "COMMON", "UNCOMMON", "RARE", "EPIC", "LEGENDARY"].map((q) => `<option value="${q}">${q[0] + q.slice(1).toLowerCase()}</option>`).join("")}</select></label>
+      <label>Min sold/day<input id="m-minSpd" type="number" min="0" step="0.5"></label>
+      <label>Min price (g)<input id="m-minPrice" type="number" min="0" step="0.1"></label>
+      <label>Max price (g)<input id="m-maxPrice" type="number" min="0" step="1"></label>
+      <label>House gap ≥ %<input id="m-minSpread" type="number" min="0" step="5" title="Difference between the cheapest and dearest house's lowest listing"></label>
+    </div>
+    <div id="m-table"></div>`;
+  for (const [k, v] of Object.entries(f)) { const i = $(`#m-${k}`, el); if (i) i.value = v; }
+  const hcol = (hid, i) => {
+    const h = house(hid);
+    return { key: `h${i}`, label: h ? factionName(h) : `#${hid}`, num: true, title: "Lowest listing (value underneath)",
+      html: (r) => (r.per[i] ? `${money(r.per[i][0])}<div class="sub">${r.per[i][2].toLocaleString()} listed${r.per[i][1] !== r.per[i][0] ? `, worth ${money(r.per[i][1], { plain: true })}` : ""}</div>` : '<span class="muted">–</span>'),
+      sort: (r) => r.per[i]?.[0] };
+  };
+  const draw = () => {
+    for (const k of Object.keys(f)) f[k] = $(`#m-${k}`, el).value;
+    store.set("mktFilters", f);
+    const q = f.q.trim().toLowerCase();
+    const out = rows.filter((r) =>
+      (!q || r.info.name.toLowerCase().includes(q) || r.key === q || baseOf(r.key) === q) &&
+      (!f.cls || r.info.cls === f.cls) && (!f.qual || r.info.q === f.qual) &&
+      (!f.minSpd || (r.spd ?? 0) >= Number(f.minSpd)) &&
+      (!f.minPrice || r.lo >= goldToCopper(f.minPrice)) && (!f.maxPrice || r.lo <= goldToCopper(f.maxPrice)) &&
+      (!f.minSpread || (r.spread ?? 0) * 100 >= Number(f.minSpread)));
+    $("#m-table", el).replaceChildren(table([
+      { key: "name", label: "Item", html: (r) => itemCell(r.info.name, r.info.q, r.info.icon, bonusOf(r.key) ? `variant ${bonusOf(r.key)}` : esc(r.info.cls ?? "")), sort: (r) => r.info.name },
+      ...hids.map(hcol),
+      { key: "qty", label: "Listed", num: true, title: "Units listed across all houses", html: (r) => r.qty.toLocaleString(), sort: (r) => r.qty },
+      { key: "spread", label: "Gap", num: true, title: "How much dearer the dearest house's lowest listing is than the cheapest house's", html: (r) => (r.spread == null ? "–" : pct(r.spread)), sort: (r) => r.spread },
+      { key: "spd", label: "Sold/day", num: true, html: (r) => fixed(r.spd), sort: (r) => r.spd },
+      { key: "gold", label: "Traded/day", num: true, title: "Estimated gold changing hands per day", html: (r) => money(r.gold), sort: (r) => r.gold },
+      { key: "chg24", label: "24h", num: true, html: (r) => signed(r.chg24), sort: (r) => r.chg24 },
+      { key: "chg7", label: "7d", num: true, html: (r) => signed(r.chg7), sort: (r) => r.chg7 },
+      { key: "spark", label: "Trend", html: (r) => sparkline(r.spark) },
+    ], out, { sortKey: rows.some((r) => r.gold) ? "gold" : "qty", onRow: (r) => (location.hash = itemHref(S.region, r.key)), empty: "No items match these filters.", limit: 200 }));
+  };
+  let t;
+  el.addEventListener("input", (e) => { if (e.target.closest(".filters")) { clearTimeout(t); t = setTimeout(draw, 150); } });
+  draw();
+}
+
+// ---------- trends ----------
+let pulseChart = null;
+async function viewTrends(el) {
+  const [{ rows }, pulse] = await Promise.all([loadMarket(), load(`pulse-${S.region}.json`)]);
+  const minSpd = store.get("trendMinSpd", 1);
+  const hrs = S.meta.regions[S.region].historyHours ?? 0;
+  el.innerHTML = `
+    <h1 class="illumined">Trends</h1>
+    <p class="lead">What's moving on the ${esc(scopeName())} houses. Lists only include items selling at least the amount below, so one-off listings don't crowd them out.</p>
+    <div class="filters"><label>Min sold/day<input id="t-min" type="number" min="0" step="0.5" value="${minSpd}"></label>
+      <span class="note">${hrs < 24 ? `History so far: ${hrs} hour${hrs === 1 ? "" : "s"}. 24-hour moves need a day of scans, 7-day moves a week.` : `History so far: ${Math.floor(hrs / 24)} days.`}</span></div>
+    <div class="chartbox"><div class="chartbar"><b class="chart-title">Market activity</b><span class="note">Listings on each house, hour by hour</span></div><div id="pulse"></div></div>
+    <div class="grid2 lists" id="t-lists"></div>`;
+  // Pulse chart.
+  const ts = [...new Set(pulse.houses.flatMap((h) => h.hours.map((p) => p[0])))].sort((a, b) => a - b);
+  const box = $("#pulse", el);
+  pulseChart?.destroy();
+  pulseChart = null;
+  if (ts.length < 2) box.innerHTML = '<p class="empty">The activity chart starts after the second hourly scan.</p>';
+  else {
+    const axis = { stroke: "#b9aa8c", font: "14px Alegreya, Georgia, serif", grid: { stroke: "rgba(227,184,92,.10)" }, ticks: { stroke: "rgba(227,184,92,.25)" } };
+    pulseChart = new uPlot({
+      width: Math.max(300, box.clientWidth || el.clientWidth - 40), height: 260,
+      series: [{}, ...pulse.houses.map((h) => ({ label: factionName(house(h.id) ?? { faction: "unknown" }), stroke: FACTION_COLOR[house(h.id)?.faction ?? "unknown"], width: 2, points: { show: false }, value: (u, v) => (v == null ? "–" : v.toLocaleString()) }))],
+      axes: [axis, { ...axis, size: 70, values: (u, v) => v.map((n) => (n >= 1000 ? `${+(n / 1000).toFixed(1)}k` : n)) }], scales: { x: { time: true } },
+    }, [ts.map((t) => t * 3600), ...pulse.houses.map((h) => { const m = new Map(h.hours.map((p) => [p[0], p[2]])); return ts.map((t) => m.get(t) ?? null); })], box);
+  }
+  const draw = () => {
+    const min = Number($("#t-min", el).value || 0);
+    store.set("trendMinSpd", min);
+    const liquid = rows.filter((r) => (r.spd ?? 0) >= min);
+    const list = (title, why, items, metric) => `<div><h2>${title}</h2><p class="note" style="margin:-6px 0 10px">${why}</p><div class="tablewrap compact"><table><tbody>${items.slice(0, 10).map((r) => `
+      <tr onclick="location.hash='${itemHref(S.region, r.key)}'"><td>${itemCell(r.info.name, r.info.q, r.info.icon, bonusOf(r.key) ? `variant ${bonusOf(r.key)}` : "")}</td><td class="num">${money(r.mv)}</td><td class="num">${metric(r)}</td><td>${sparkline(r.spark, { w: 84, h: 24 })}</td></tr>`).join("") || '<tr><td class="empty">Nothing yet: this list fills in as history builds up.</td></tr>'}</tbody></table></div></div>`;
+    const by = (k, dir = -1) => (a, b) => ((a[k] ?? 0) - (b[k] ?? 0)) * -dir;
+    $("#t-lists", el).innerHTML = [
+      list("Rising today", "Biggest 24-hour gains in market value", liquid.filter((r) => r.chg24 > 0).sort(by("chg24")), (r) => signed(r.chg24)),
+      list("Falling today", "Biggest 24-hour drops: possible buying chances", liquid.filter((r) => r.chg24 < 0).sort(by("chg24", 1)), (r) => signed(r.chg24)),
+      list("Rising this week", "Biggest 7-day gains", liquid.filter((r) => r.chg7 > 0).sort(by("chg7")), (r) => signed(r.chg7)),
+      list("Falling this week", "Biggest 7-day drops", liquid.filter((r) => r.chg7 < 0).sort(by("chg7", 1)), (r) => signed(r.chg7)),
+      list("Most gold traded", "Estimated gold changing hands per day", liquid.filter((r) => r.gold).sort(by("gold")), (r) => money(r.gold)),
+      list("Supply squeeze", "Far fewer listed than usual while sales hold up: prices may rise", liquid.filter((r) => r.supply != null && r.supply < 0.6).sort(by("supply", 1)), (r) => `${pct(r.supply)} of usual`),
+      list("Under baseline now", "Lowest listing in the busiest house well below its usual value", liquid.filter((r) => r.base && r.mainLo && r.mainLo / r.base < 0.8).sort((a, b) => a.mainLo / a.base - b.mainLo / b.base), (r) => pct(r.mainLo / r.base - 1)),
+      list("Most volatile", "Biggest day-to-day swings: room for timing, more risk", liquid.filter((r) => r.cv != null).sort(by("cv")), (r) => pct(r.cv)),
+    ].join("");
+  };
+  $("#t-min", el).addEventListener("input", draw);
+  draw();
 }
 
 async function viewHouses(el) {
@@ -418,14 +645,20 @@ function fillGroups() {
 async function route() {
   const el = $("#view");
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
-  document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active", a.dataset.nav === ({ "": "opps", houses: "houses", house: "houses", watch: "watch", status: "status" })[parts[0] ?? ""]));
+  document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active", a.dataset.nav === ({ "": "opps", houses: "houses", house: "houses", watch: "watch", status: "status", market: "market", trends: "trends", item: "market" })[parts[0] ?? ""]));
   chart?.destroy();
   chart = null;
+  depth?.destroy();
+  depth = null;
+  pulseChart?.destroy();
+  pulseChart = null;
   const fresh = document.createElement("div");
   el.replaceChildren(fresh);
   try {
     if (parts[0] === "item") await viewItem(fresh, parts[1], decodeURIComponent(parts[2]), parts[3] ? decodeURIComponent(parts[3]) : null);
     else if (parts[0] === "houses") await viewHouses(fresh);
+    else if (parts[0] === "market") await viewMarket(fresh);
+    else if (parts[0] === "trends") await viewTrends(fresh);
     else if (parts[0] === "house") await viewHouse(fresh, parts[1], Number(parts[2]));
     else if (parts[0] === "watch") await viewWatch(fresh);
     else if (parts[0] === "status") await viewStatus(fresh);

@@ -24,9 +24,10 @@ test("summarise prices auctions per unit and skips bid-only for prices", () => {
   assert.equal(s.qty, 25);
 });
 
-test("market value ignores a lone troll listing", () => {
-  const ladder = [[100, 10], [105, 10], [110, 10], [100000, 1]];
-  assert.ok(marketValue(ladder, 31) <= 105);
+test("market value ignores troll listings at both ends", () => {
+  assert.ok(marketValue([[100, 10], [105, 10], [110, 10], [100000, 1]], 31) <= 105);
+  const v = marketValue([[1, 1], [100, 5], [105, 5], [110, 5]], 16);
+  assert.ok(v >= 100 && v <= 110, `lone 1c listing must not set the value (got ${v})`);
 });
 
 test("lifecycle: LONG disappearances are sales, SHORT/MEDIUM expiries, partial buys counted", () => {

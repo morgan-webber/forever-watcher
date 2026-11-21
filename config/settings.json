@@ -43,7 +43,7 @@
   "minRoi": 0.15,
   "arbMinProfitCopper": 20000,
   "minSoldPerDay": 0.5,
-  "itemBackfillPerRun": 1500,
+  "itemBackfillPerRun": 4000,
   "maxOppsPerRegion": 400,
   "backtestWindowDays": 30
 }

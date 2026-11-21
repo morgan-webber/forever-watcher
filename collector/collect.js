@@ -118,7 +118,7 @@ export async function collect({ client, config, stateDir, outDir, nowMs = Date.n
     const opps = findOpportunities(region, houseData, items, settings, fees, nowMs);
     log(`  ${opps.length} opportunities (${["flip", "vendor", "arbitrage"].map((t) => `${opps.filter((o) => o.type === t).length} ${t}`).join(", ")})`);
     allOpps.push(...opps);
-    regions[region] = { houses: houseData.map((h) => h.house), allHouses: houses, hists, opps, focus };
+    regions[region] = { houses: houseData.map((h) => h.house), allHouses: houses, hists, opps, focus, ladders: new Map(houseData.map((h) => [h.house.id, h.ladders])) };
   }
 
   // 5. Backtest.
