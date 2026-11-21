@@ -1,12 +1,36 @@
 {
   "regions": {
-    "us": { "locale": "en_US" },
-    "eu": { "locale": "en_GB" }
+    "us": {
+      "locale": "en_US"
+    },
+    "eu": {
+      "locale": "en_GB"
+    }
   },
   "listRuleset": 2,
+  "focusGroups": {
+    "us": [
+      2
+    ],
+    "eu": [
+      2
+    ]
+  },
   "groupNames": {
-    "eu": { "1": "PvP (reported)", "2": "Normal (reported)" },
-    "us": {}
+    "us": {
+      "1": "Group 1 (PvP?)",
+      "2": "Normal (PvE)",
+      "3": "Unused (empty)",
+      "4": "Group 4 (RP?)",
+      "5": "Group 5 (RP?)"
+    },
+    "eu": {
+      "1": "Group 1 (PvP?)",
+      "2": "Normal (PvE)",
+      "3": "Unused (empty)",
+      "4": "Group 4 (RP?)",
+      "5": "Group 5 (RP?)"
+    }
   },
   "hourlyKeepHours": 96,
   "dailyKeepDays": 365,

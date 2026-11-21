@@ -9,21 +9,21 @@
  */
 const RETRY_MISSING_MS = 7 * 86_400_000;
 
-function iconSlug(url) {
-  return url ? String(url).split("/").pop().replace(/\.(jpg|png)$/i, "") : null;
+/** The icon URL exactly as Blizzard's media endpoint returns it. */
+async function iconFor(client, region, locale, id, ns) {
+  try {
+    const m = await client.get(region, `/data/wow/media/item/${id}`, ns, { locale });
+    return m.json?.assets?.find((a) => a.key === "icon")?.value ?? m.json?.assets?.[0]?.value ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function lookup(client, region, locale, id, ns) {
   const r = await client.get(region, `/data/wow/item/${id}`, ns, { locale });
   if (r.status === 404 || !r.json) return null;
   const j = r.json;
-  let icon = null;
-  try {
-    const m = await client.get(region, `/data/wow/media/item/${id}`, ns, { locale });
-    icon = iconSlug(m.json?.assets?.find((a) => a.key === "icon")?.value ?? m.json?.assets?.[0]?.value);
-  } catch {
-    /* icon is optional */
-  }
+  const icon = await iconFor(client, region, locale, id, ns);
   return {
     n: j.name ?? `Item ${id}`,
     q: j.quality?.type ?? "COMMON",
@@ -42,7 +42,10 @@ export async function backfillItems(client, db, ids, { region, locale, limit, no
     const e = db[id];
     if (!e || (e.src === "missing" && now - e.t > RETRY_MISSING_MS)) todo.push(id);
   }
+  // Entries cached before icons were stored as full URLs: refresh just the icon.
+  const iconTodo = ids.filter((id) => db[id] && db[id].src !== "missing" && db[id].icon !== undefined && !String(db[id].icon ?? "").startsWith("http") && !db[id].iconChecked);
   const batch = todo.slice(0, limit);
+  const iconBatch = iconTodo.slice(0, Math.max(0, limit - batch.length) * 2);
   let ok = 0;
   let fallback = 0;
   let missing = 0;
@@ -65,11 +68,17 @@ export async function backfillItems(client, db, ids, { region, locale, limit, no
       log(`  item ${id}: ${e.message}`);
     }
   };
+  const iconWork = async (id) => {
+    const e = db[id];
+    e.icon = (await iconFor(client, region, locale, id, e.src === "retail" ? "static" : "static-forever")) ?? null;
+    e.iconChecked = true;
+  };
   // A few lookups in flight at once; the client spaces requests to stay under 100/s.
+  const jobs = [...batch.map((id) => () => work(id)), ...iconBatch.map((id) => () => iconWork(id))];
   let next = 0;
-  await Promise.all(Array.from({ length: Math.min(concurrency, batch.length) }, async () => {
-    while (next < batch.length) await work(batch[next++]);
+  await Promise.all(Array.from({ length: Math.min(concurrency, jobs.length) }, async () => {
+    while (next < jobs.length) await jobs[next++]();
   }));
-  log(`  items: ${batch.length} looked up (${ok} forever, ${fallback} retail fallback, ${missing} missing), ${todo.length - batch.length} still queued`);
+  log(`  items: ${batch.length} looked up (${ok} forever, ${fallback} retail fallback, ${missing} missing), ${todo.length - batch.length} still queued; ${iconBatch.length} icons refreshed`);
   return { looked: batch.length, queued: todo.length - batch.length };
 }

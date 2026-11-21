@@ -49,13 +49,16 @@ export async function collect({ client, config, stateDir, outDir, nowMs = Date.n
       log("  no houses known, skipping region");
       continue;
     }
+    houses = houses.map((h) => ({ ...h, groupName: settings.groupNames?.[region]?.[h.group] ?? h.groupName }));
+    meta.houses[region] = houses;
 
     const hists = new Map();
     const houseData = [];
     current[region] = new Map();
 
-    // 2. Each house.
-    for (const house of houses) {
+    // 2. Each house in the focus groups (settings.focusGroups; empty = all groups).
+    const focus = settings.focusGroups?.[region] ?? [];
+    for (const house of houses.filter((h) => !focus.length || focus.includes(h.group))) {
       const tag = `${region}-${house.id}`;
       const scan = (meta.lastScan[tag] ??= {});
       const hist = await readJson(S("hist", `${tag}.json.gz`), emptyHistory());
@@ -115,7 +118,7 @@ export async function collect({ client, config, stateDir, outDir, nowMs = Date.n
     const opps = findOpportunities(region, houseData, items, settings, fees, nowMs);
     log(`  ${opps.length} opportunities (${["flip", "vendor", "arbitrage"].map((t) => `${opps.filter((o) => o.type === t).length} ${t}`).join(", ")})`);
     allOpps.push(...opps);
-    regions[region] = { houses: houseData.map((h) => h.house), hists, opps };
+    regions[region] = { houses: houseData.map((h) => h.house), allHouses: houses, hists, opps, focus };
   }
 
   // 5. Backtest.

@@ -2,9 +2,9 @@
  * Writes the static JSON the site reads, under <out>/data/.
  *   meta.json                          houses, scan times, fees, backtest, generation time
  *   opps-<region>.json                 ranked opportunities (with item names for display)
- *   index-<region>.json                [key, name, quality, icon, class] for search
+ *   index-<region>.json                [baseId, name, quality, icon, class, vendor, variants] for search
  *   houses/<region>-<id>.json          current market table for one house
- *   items/<region>/<key>.json          history + metrics for one item across houses
+ *   items/<region>/<baseId>.json       history + metrics per variant (bonus list) per house
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -31,13 +31,17 @@ export async function publish({ outDir, regions, items, settings, fees, backtest
 
     meta.regions[region] = {
       houses: R.houses.map((h) => ({ ...h, items: Object.keys(R.hists.get(h.id)?.items ?? {}).length })),
-      items: keys.size,
+      allHouses: R.allHouses,
+      focus: R.focus ?? [],
+      items: new Set([...keys].map(baseId)).size,
     };
 
     // Search index.
-    const index = [...keys].map((k) => {
-      const m = items[baseId(k)];
-      return [k, m?.n ?? `Item ${baseId(k)}`, m?.q ?? "COMMON", m?.icon ?? null, m?.c ?? null, m?.sell ?? 0];
+    const variants = new Map();
+    for (const k of keys) variants.set(baseId(k), (variants.get(baseId(k)) ?? 0) + 1);
+    const index = [...variants].map(([id, nv]) => {
+      const m = items[id];
+      return [String(id), m?.n ?? `Item ${id}`, m?.q ?? "COMMON", m?.icon ?? null, m?.c ?? null, m?.src === "forever" ? m.sell ?? 0 : null, nv];
     });
     await write(path.join(dataDir, `index-${region}.json`), index);
 
@@ -56,8 +60,11 @@ export async function publish({ outDir, regions, items, settings, fees, backtest
         const last = e.h.at(-1);
         const listed = last && last[H.HOUR] >= nowHour - 2;
         if (listed) rows.push([key, last[H.MIN], last[H.MV], last[H.QTY], last[H.N], m?.baseline ?? null, r3(m?.soldPerDay), r3(m?.sellThrough), r3(m?.chg24)]);
-        if (!perItem.has(key)) perItem.set(key, {});
-        perItem.get(key)[h.id] = {
+        const b = baseId(key);
+        if (!perItem.has(b)) perItem.set(b, {});
+        const vmap = perItem.get(b);
+        vmap[key] ??= {};
+        vmap[key][h.id] = {
           h: e.h,
           d: e.d,
           m: m && { baseline: m.baseline, soldPerDay: r3(m.soldPerDay), sellThrough: r3(m.sellThrough), cv: r3(m.cv), chg24: r3(m.chg24), historyDays: m.historyDays, listed },
@@ -65,8 +72,8 @@ export async function publish({ outDir, regions, items, settings, fees, backtest
       }
       await write(path.join(dataDir, "houses", `${region}-${h.id}.json`), { house: h, rows });
     }
-    for (const [key, houses] of perItem) {
-      await write(path.join(dataDir, "items", region, `${key}.json`), { key, houses });
+    for (const [b, vmap] of perItem) {
+      await write(path.join(dataDir, "items", region, `${b}.json`), { base: b, variants: vmap });
     }
   }
   await write(path.join(dataDir, "meta.json"), meta);

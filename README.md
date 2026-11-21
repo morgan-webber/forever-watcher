@@ -39,7 +39,17 @@ Without Blizzard credentials, the job publishes simulated demo data, labelled as
 - `config/settings.json`: thresholds (flip at 70% of baseline, 3-day horizon, minimum profit and ROI, minimum sales per day) and retention.
 - `config/alerts.json`: Discord alert rules. Prices are in copper (1g = 10000).
 
-House groups: each region lists 5 Alliance, 5 Horde and 5 Blackwater houses. The nth house of each faction (by ID) shares a ruleset, so arbitrage is only suggested within a group. The only ruleset name players have confirmed is EU group 2 = Normal. Add names in `settings.json → groupNames` as you confirm them in game.
+House groups: each region lists 5 Alliance, 5 Horde and 5 Blackwater houses. The nth house of each faction (by ID) shares a ruleset:
+
+| Group | Houses (A / H / Blackwater) | Ruleset |
+| --- | --- | --- |
+| 1 | 110 / 113 / 116 | likely PvP (large, 2nd busiest) |
+| **2** | **111 / 114 / 117** | **Normal (PvE)**: confirmed by a player price match on EU; the busiest group in US |
+| 3 | 112 / 115 / 118 | empty (likely reserved for Hardcore, which arrives post-launch) |
+| 4 | 119 / 120 / 121 | small: likely one of the Roleplay rulesets |
+| 5 | 123 / 124 / 125 | small: likely the other Roleplay ruleset |
+
+Only group 2 is scanned by default (`settings.json → focusGroups`). To confirm in game, compare the lowest buyout of a common item on your Normal character with houses 111/114 versus 110/113.
 
 ## Local development
 

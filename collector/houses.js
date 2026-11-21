@@ -34,6 +34,6 @@ export function parseHouseIndex(json) {
 /** Can one character trade between these two houses without a cross-faction transfer? */
 export function routeNote(a, b) {
   if (a.faction === b.faction) return "same house faction";
-  if (a.faction === "neutral" || b.faction === "neutral") return "one character (own faction + Blackwater)";
-  return "needs a cross-faction transfer (via Blackwater or an alt)";
+  if (a.faction === "neutral" || b.faction === "neutral") return "one character can do it";
+  return "cross-faction: relay through Blackwater";
 }
