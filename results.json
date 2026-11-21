@@ -1,0 +1,96 @@
+{
+  "at": "2026-11-21T18:04:04.047Z",
+  "blizzard": {
+    "professionIndex": {
+      "path": "/data/wow/profession/index",
+      "ns": "static-forever",
+      "status": 200,
+      "sample": "{\"_links\":{\"self\":{\"href\":\"https://us.api.blizzard.com/data/wow/profession/?namespace=static-1.60.1_70399-forever-us\"}},\"professions\":[{\"key\":{\"href\":\"https://us.api.blizzard.com/data/wow/profession/197?namespace=static-1.60.1_70399-forever-us\"},\"name\":\"Tailoring\",\"id\":197},{\"key\":{\"href\":\"https://us.api.blizzard.com/data/wow/profession/185?namespace=static-1.60.1_70399-forever-us\"},\"name\":\"Cooking\",\"id\":185},{\"key\":{\"href\":\"https://us.api.blizzard.com/data/wow/profession/165?namespace=static-1.60.1_70399-forever-us\"},\"name\":\"Leatherworking\",\"id\":165},{\"key\":{\"href\":\"https://us.api.blizzard.com/data/wow/profession/393?namespace=static-1.60.1_70399-forever-us\"},\"name\":\"Skinning\",\"id\":393},{\"key\":{\"href\":\"https://us.api.blizzard.com/data/wow/profession/333?namespace=static-1.60.1_70399-forever-us\"},\"name\":\"Enchanting\",\"id\":333},{\"key\":{\"href\":\"https://us.api.blizzard.com/data/wow/profession/186?namespace=static-1.60.1_70399-forever-us\"},\"name\":\"Mining\",\"id\":186},{\"key\":{\"href\":\"https://us.api.blizzard.com/data/wow/profession/164?namespace=static-1.60.1_70399-forever-us\"},\"name\":\"Blacksmithing\",\"id\":164},{\"key\":{\"href\":\"https://us.api.blizzard.com/data/wow/profession/202?namespace=static-1.60.1_70399-forever-us\"},\"name\":\"Engineering\",\"id\":202},{\"key\":{\"href\":\"https://us.api.blizzard.com/data/wow/profession/356?namespace=static-1.60.1_70399-forever-us\"},\"name\":\"Fishing\",\"id\":356},{\"key\":{\"href\":\"https://us.api.blizzard.com/data/wow/profession/171?namespace=static-1.60.1_70399-for"
+    },
+    "profession": {
+      "path": "/data/wow/profession/197",
+      "ns": "static-forever",
+      "status": 200,
+      "sample": "{\"_links\":{\"self\":{\"href\":\"https://us.api.blizzard.com/data/wow/profession/197?namespace=static-1.60.1_70399-forever-us\"}},\"id\":197,\"name\":\"Tailoring\",\"description\":\"Higher tailoring skill allows you to learn higher level tailoring patterns.  Tailoring patterns can be found on trainers around the world as well as from quests and monsters.\",\"type\":{\"type\":\"PRIMARY\",\"name\":\"Primary\"},\"media\":{\"key\":{\"href\":\"https://us.api.blizzard.com/data/wow/media/profession/197?namespace=static-1.60.1_70399-forever-us\"},\"id\":197},\"skill_tiers\":[{\"key\":{\"href\":\"https://us.api.blizzard.com/data/wow/profession/197/skill-tier/2948?namespace=static-1.60.1_70399-forever-us\"},\"name\":\"Tailoring\",\"id\":2948}]}"
+    },
+    "skillTier": {
+      "path": "/data/wow/profession/197/skill-tier/2948",
+      "ns": "static-forever",
+      "status": 200,
+      "sample": "{\"_links\":{\"self\":{\"href\":\"https://us.api.blizzard.com/data/wow/profession/197/skill-tier/2948?namespace=static-1.60.1_70399-forever-us\"}},\"id\":2948,\"name\":\"Tailoring\",\"minimum_skill_level\":1,\"maximum_skill_level\":75,\"categories\":[{\"name\":\"Reagents\",\"recipes\":[{\"key\":{\"href\":\"https://us.api.blizzard.com/data/wow/recipe/2359?namespace=static-1.60.1_70399-forever-us\"},\"name\":\"Bolt of Linen Cloth\",\"id\":2359},{\"key\":{\"href\":\"https://us.api.blizzard.com/data/wow/recipe/2370?namespace=static-1.60.1_70399-forever-us\"},\"name\":\"Bolt of Woolen Cloth\",\"id\":2370},{\"key\":{\"href\":\"https://us.api.blizzard.com/data/wow/recipe/2376?namespace=static-1.60.1_70399-forever-us\"},\"name\":\"Bolt of Silk Cloth\",\"id\":2376},{\"key\":{\"href\":\"https://us.api.blizzard.com/data/wow/recipe/2377?namespace=static-1.60.1_70399-forever-us\"},\"name\":\"Bolt of Mageweave\",\"id\":2377},{\"key\":{\"href\":\"https://us.api.blizzard.com/data/wow/recipe/10396?namespace=static-1.60.1_70399-forever-us\"},\"name\":\"Bolt of Runecloth\",\"id\":10396},{\"key\":{\"href\":\"https://us.api.blizzard.com/data/wow/recipe/10487?namespace=static-1.60.1_70399-forever-us\"},\"name\":\"Mooncloth\",\"id\":10487}]},{\"name\":\"Cloaks\",\"recipes\":[{\"key\":{\"href\":\"https://us.api.blizzard.com/data/wow/recipe/2360?namespace=static-1.60.1_70399-forever-us\"},\"name\":\"Linen Cloak\",\"id\":2360},{\"key\":{\"href\":\"https://us.api.blizzard.com/data/wow/recipe/2367?namespace=static-1.60.1_70399-forever-us\"},\"name\":\"Reinforced Linen Cape\",\"id\":2367},{\"key\":{\"href\":\"https://us.api.blizzard.c"
+    },
+    "recipe": {
+      "path": "/data/wow/recipe/2359",
+      "ns": "static-forever",
+      "status": 200,
+      "sample": "{\"_links\":{\"self\":{\"href\":\"https://us.api.blizzard.com/data/wow/recipe/2359?namespace=static-1.60.1_70399-forever-us\"}},\"id\":2359,\"name\":\"Bolt of Linen Cloth\",\"media\":{\"key\":{\"href\":\"https://us.api.blizzard.com/data/wow/media/recipe/2359?namespace=static-1.60.1_70399-forever-us\"},\"id\":2359},\"crafted_item\":{\"key\":{\"href\":\"https://us.api.blizzard.com/data/wow/item/2996?namespace=static-1.60.1_70399-forever-us\"},\"name\":\"Bolt of Linen Cloth\",\"id\":2996},\"reagents\":[{\"reagent\":{\"key\":{\"href\":\"https://us.api.blizzard.com/data/wow/item/2589?namespace=static-1.60.1_70399-forever-us\"},\"name\":\"Linen Cloth\",\"id\":2589},\"quantity\":2}],\"crafted_quantity\":{\"value\":1}}"
+    },
+    "professionIndexClassic": {
+      "path": "/data/wow/profession/index",
+      "ns": "static-classic1x",
+      "status": 404,
+      "sample": null
+    }
+  },
+  "wago": {
+    "buildsStatus": 200,
+    "foreverProducts": {
+      "wow_classic_beta": [
+        "5.5.0.62071",
+        "5.5.0.62044",
+        "5.5.0.61916"
+      ],
+      "wowf": [
+        "1.60.1.71037",
+        "1.60.1.70959",
+        "1.60.1.70938"
+      ],
+      "wow_cn_beta": [
+        "1.60.1.70450",
+        "1.60.1.70374",
+        "1.60.1.70338"
+      ]
+    },
+    "build": "1.60.1.71037",
+    "SpellReagents": {
+      "status": 200,
+      "rows": 3320,
+      "head": "ID,SpellID,Reagent_0,Reagent_1,Reagent_2,Reagent_3,Reagent_4,Reagent_5,Reagent_6,Reagent_7,ReagentCount_0,ReagentCount_1,ReagentCount_2,ReagentCount_3,ReagentCount_4,ReagentCount_5,ReagentCount_6,ReagentCount_7,ReagentReCraftCount_0,ReagentReCraftCount_1,ReagentReCraftCount_2,ReagentReCraftCount_3,ReagentReCraftCount_4,ReagentReCraftCount_5,ReagentReCraftCount_6,ReagentReCraftCount_7,ReagentSource_0,ReagentSource_1,ReagentSource_2,ReagentSource_3,ReagentSource_4,ReagentSource_5,ReagentSource_6,ReagentSource_7\n2549,44950,14048,2997,2605,14341,0,0,0,0,4,1,2,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0\n2550,44953,2840,2997,8170,14341,0,0,0,0,1,1,4,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0"
+    },
+    "SkillLineAbility": {
+      "status": 200,
+      "rows": 7854,
+      "head": "AbilityVerb_lang,AbilityAllVerb_lang,ID,SkillLine,Spell,MinSkillLineRank,ClassMask,SupercedesSpell,AcquireMethod,TrivialSkillLineRankHigh,TrivialSkillLineRankLow,Flags,NumSkillUps,UniqueBit,TradeSkillCategoryID,SkillupSkillLineID,Field_5_5_4_67090_014_0,Field_5_5_4_67090_014_1,RaceMasks_0,RaceMasks_1\n,,69,6,116,1,128,0,0,0,0,0,1,0,0,0,0,0,0,0\n,,246,45,264,1,13,0,2,0,0,0,1,0,0,0,0,0,0,0"
+    },
+    "SpellEffect": {
+      "status": 200,
+      "rows": 43539,
+      "head": "ID,EffectAura,DifficultyID,EffectIndex,Effect,EffectAmplitude,EffectAttributes,EffectAuraPeriod,EffectBonusCoefficient,EffectChainAmplitude,EffectChainTargets,EffectItemType,EffectMechanic,EffectPointsPerResource,EffectPos_facing,EffectRealPointsPerLevel,EffectTriggerSpell,BonusCoefficientFromAP,PvpMultiplier,Coefficient,Variance,ResourceCoefficient,GroupSizeBasePointsCoefficient,EffectBasePointsF,ScalingClass,Node__Field_12_0_0_63534_001,EffectMiscValue_0,EffectMiscValue_1,EffectRadiusIndex_0,EffectRadiusIndex_1,EffectSpellClassMask_0,EffectSpellClassMask_1,EffectSpellClassMask_2,EffectSpellClassMask_3,ImplicitTarget_0,ImplicitTarget_1,SpellID\n34312,226,0,0,6,0,0,30000,1,1,0,0,0,0,0,0,0,0,1,0,0,0,1,1,0,0,0,0,0,0,0,0,0,0,1,0,42596\n34313,4,0,0,6,0,0,0,1,1,0,0,7,0,0,0,0,0,1,0,0,0,1,0,0,0,0,0"
+    },
+    "ItemDisenchantLoot": {
+      "status": 200,
+      "rows": 55,
+      "head": "ID,Subclass,Quality,MinLevel,MaxLevel,SkillRequired,ExpansionID,Class\n3,-1,2,5,15,0,-2,2\n4,-1,2,5,15,0,-2,4"
+    },
+    "Item": {
+      "status": 200,
+      "rows": 32010,
+      "head": "ID,ClassID,SubclassID,Material,InventoryType,SheatheType,ItemPetFoodID,Sound_override_subclassID,IconFileDataID,ItemGroupSoundsID,ContentTuningID,ModifiedCraftingReagentItemID,AmmunitionType,CraftingQualityID,ItemSquishEraID,RecraftReagentCountPercentage,OrderSource\n17,4,4,6,4,3,0,-1,132759,11,0,0,0,0,0,0,0\n25,2,7,1,21,3,0,-1,135274,8,0,0,0,0,0,0,0"
+    },
+    "ItemSparse": {
+      "status": 200,
+      "rows": 19402,
+      "head": "ID,Description_lang,Display3_lang,Display2_lang,Display1_lang,Display_lang,ExpansionID,DmgVariance,LimitCategory,DurationInInventory,QualityModifier,BagFamily,StartQuestID,LanguageID,ItemRange,StatPercentageOfSocket_0,StatPercentageOfSocket_1,StatPercentageOfSocket_2,StatPercentageOfSocket_3,StatPercentageOfSocket_4,StatPercentageOfSocket_5,StatPercentageOfSocket_6,StatPercentageOfSocket_7,StatPercentageOfSocket_8,StatPercentageOfSocket_9,StatPercentEditor_0,StatPercentEditor_1,StatPercentEditor_2,StatPercentEditor_3,StatPercentEditor_4,StatPercentEditor_5,StatPercentEditor_6,StatPercentEditor_7,StatPercentEditor_8,StatPercentEditor_9,StatModifier_bonusStat_0,StatModifier_bonusStat_1,StatModifier_bonusStat_2,StatModifier_bonusStat_3,StatModifier_bonusStat_4,StatModifier_bonusStat_5,StatMod"
+    },
+    "SkillLine": {
+      "status": 200,
+      "rows": 155,
+      "head": "DisplayName_lang,AlternateVerb_lang,Description_lang,HordeDisplayName_lang,NeutralDisplayName,ID,CategoryID,SpellIconFileID,CanLink,ParentSkillLineID,ParentTierIndex,Flags,SpellBookSpellID,ExpansionNameSharedStringID,HordeExpansionNameSharedStringID\nFrost,,,,,6,7,135846,0,0,0,1040,0,0,0\nFire,,,,,8,7,135810,0,0,0,1040,0,0,0"
+    },
+    "SpellName": {
+      "status": 200,
+      "rows": 32504,
+      "head": "ID,Name_lang\n1,\"Word of Recall (OLD)\"\n3,\"Word of Mass Recall (OLD)\""
+    }
+  }
+}
