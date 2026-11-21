@@ -248,7 +248,7 @@ async function viewItem(el, region, base, variantKey) {
       <div class="chartbar">
         <select id="c-house" aria-label="House"></select>
         <div class="tabs" id="c-range"><button data-r="h">Hourly · ${S.meta.settings.hourlyKeepHours / 24} days</button><button data-r="30">30 days</button><button data-r="365">A year</button></div>
-        <label class="toggle"><input type="checkbox" id="c-qty"> Listed quantity</label>
+        <label class="toggle"><input type="checkbox" id="c-qty"> Volume</label>
         <label class="toggle"><input type="checkbox" id="c-ma"> Moving average</label>
         <span class="note" id="c-note"></span>
       </div>
@@ -275,7 +275,7 @@ async function viewItem(el, region, base, variantKey) {
   sel.value = store.get("itemHouse", "all") === "all" && rows.length > 1 ? "all" : String(main?.hid ?? rows[0]?.hid);
   let range = store.get("range", "h");
   const qtyBox = $("#c-qty", el), maBox = $("#c-ma", el);
-  qtyBox.checked = store.get("showQty", false);
+  qtyBox.checked = store.get("showVolume", true);
   maBox.checked = store.get("showMa", true);
   const axisBase = { stroke: "#b9aa8c", font: "14px Alegreya, Georgia, serif", grid: { stroke: "rgba(227,184,92,.10)" }, ticks: { stroke: "rgba(227,184,92,.25)" } };
   const fmt = (u, v) => (v == null ? "–" : money(v * 10000, { plain: true }));
@@ -283,7 +283,7 @@ async function viewItem(el, region, base, variantKey) {
 
   const seriesOf = (x, which) => {
     // which: "h" hourly or day count. Returns { t, mv, mn, qty }
-    if (which === "h") return { t: x.h.map((p) => p[0] * 3600), mv: x.h.map((p) => p[1] / 10000), mn: x.h.map((p) => p[2] / 10000), qty: x.h.map((p) => p[3]) };
+    if (which === "h") return { t: x.h.map((p) => p[0] * 3600), mv: x.h.map((p) => p[1] / 10000), mn: x.h.map((p) => p[2] / 10000), qty: x.h.map((p) => p[3]), sold: x.h.map((p) => p[5] ?? null) };
     const minDay = Math.floor(Date.now() / 86400000) - Number(which);
     const d = x.d.filter((r) => r[0] >= minDay);
     return { t: d.map((r) => r[0] * 86400), mv: d.map((r) => (r[1] == null ? null : r[1] / 10000)), mn: d.map((r) => (r[2] == null ? null : r[2] / 10000)), qty: d.map((r) => r[3]), sold: d.map((r) => r[4]) };
@@ -293,9 +293,26 @@ async function viewItem(el, region, base, variantKey) {
     return w.length >= Math.min(n, 3) ? w.reduce((a, b) => a + b, 0) / w.length : null;
   });
 
+  // Volume: units listed as a shaded band along the bottom (own scale, right axis) and estimated
+  // units sold as bars (own scale, so a few sales still show next to thousands listed).
+  const addVolume = (arr, series, axes, listed, sold) => {
+    const maxL = Math.max(1, ...listed.filter((v) => v != null));
+    arr.push(listed);
+    series.push({ label: "Listed", stroke: "rgba(169,139,214,.9)", width: 1, fill: "rgba(169,139,214,.16)", scale: "q", points: { show: false }, value: (u, v) => (v == null ? "–" : `${v.toLocaleString()} units`) });
+    axes.push({ ...axisBase, scale: "q", side: 1, grid: { show: false }, size: 62, values: (u, v) => v.map((n) => (n >= 1000 ? `${+(n / 1000).toFixed(1)}k` : n)) });
+    const scales = { q: { range: () => [0, maxL * 2.4] } };
+    if (sold && sold.some((v) => v)) {
+      const maxS = Math.max(1, ...sold.filter((v) => v != null));
+      arr.push(sold);
+      series.push({ label: "Sold (est.)", stroke: "#8fd49a", width: 1, fill: "rgba(143,212,154,.45)", scale: "s", paths: uPlot.paths.bars({ size: [0.6, 22] }), points: { show: false }, value: (u, v) => (v == null ? "–" : `${Math.round(v).toLocaleString()} units`) });
+      scales.s = { range: () => [0, maxS * 3] };
+    }
+    return scales;
+  };
+
   const draw = () => {
     store.set("itemHouse", sel.value === "all" ? "all" : "one");
-    store.set("showQty", qtyBox.checked);
+    store.set("showVolume", qtyBox.checked);
     store.set("showMa", maBox.checked);
     for (const b of el.querySelectorAll("#c-range button")) b.classList.toggle("on", b.dataset.r === range);
     const box = $("#chart", el);
@@ -307,10 +324,18 @@ async function viewItem(el, region, base, variantKey) {
       // Every house's market value on one time axis.
       const per = rows.map((x) => ({ x, s: seriesOf(x, range) }));
       const ts = [...new Set(per.flatMap((p) => p.s.t))].sort((a, b) => a - b);
-      arr = [ts, ...per.map((p) => { const m = new Map(p.s.t.map((t, i) => [t, p.s.mv[i]])); return ts.map((t) => m.get(t) ?? null); })];
+      const align = (p, k) => { const m = new Map(p.s.t.map((t, i) => [t, p.s[k]?.[i]])); return ts.map((t) => m.get(t) ?? null); };
+      arr = [ts, ...per.map((p) => align(p, "mv"))];
       const series = [{}, ...per.map((p) => ({ label: `${factionName(house(p.x.hid))}`, stroke: FACTION_COLOR[house(p.x.hid).faction], width: 2, spanGaps: true, points: { show: false }, value: fmt }))];
-      opts = { width, height: 330, series, axes: [axisBase, gAxis], scales: { x: { time: true } } };
-      $("#c-note", el).textContent = ts.length < 2 ? "Not enough history for this range yet: the chart fills in hour by hour." : "Market value in each house";
+      const axes = [axisBase, gAxis];
+      let scales = { x: { time: true } };
+      if (qtyBox.checked) {
+        // Totals across all houses.
+        const sum = (k) => { const cols = per.map((p) => align(p, k)); return ts.map((_, i) => (cols.some((c) => c[i] != null) ? cols.reduce((a, c) => a + (c[i] ?? 0), 0) : null)); };
+        scales = { ...scales, ...addVolume(arr, series, axes, sum("qty"), sum("sold")) };
+      }
+      opts = { width, height: 360, series, axes, scales };
+      $("#c-note", el).textContent = ts.length < 2 ? "Not enough history for this range yet: the chart fills in hour by hour." : `Market value in each house${qtyBox.checked ? "; volume is all houses combined" : ""}`;
     } else {
       const x = data.houses[sel.value];
       if (!x) { box.innerHTML = '<p class="empty">No history in this house yet.</p>'; return; }
@@ -323,16 +348,9 @@ async function viewItem(el, region, base, variantKey) {
         arr.push(movingAvg(s.mv, range === "h" ? 24 : 7));
         series.push({ label: range === "h" ? "24h average" : "7-day average", stroke: "#f0e4c8", width: 1.5, dash: [2, 3], points: { show: false }, value: fmt });
       }
-      if (qtyBox.checked) {
-        arr.push(s.qty);
-        series.push({ label: "Listed", stroke: "#a98bd6", width: 1.2, scale: "q", points: { show: false }, value: (u, v) => (v == null ? "–" : v.toLocaleString()) });
-        axes.push({ ...axisBase, scale: "q", side: 1, grid: { show: false }, size: 56 });
-      } else if (s.sold) {
-        arr.push(s.sold);
-        series.push({ label: "Estimated sold", stroke: "#8fd49a", width: 1, scale: "n", paths: uPlot.paths.bars({ size: [0.55, 26] }), fill: "rgba(143,212,154,.25)" });
-        axes.push({ ...axisBase, scale: "n", side: 1, grid: { show: false }, size: 46 });
-      }
-      opts = { width, height: 330, series, axes, scales: { x: { time: true } } };
+      let scales = { x: { time: true } };
+      if (qtyBox.checked) scales = { ...scales, ...addVolume(arr, series, axes, s.qty, s.sold) };
+      opts = { width, height: 360, series, axes, scales };
       $("#c-note", el).textContent = s.t.length < 2 ? "Not enough history for this range yet: the chart fills in hour by hour." : "";
     }
     chart = new uPlot({ ...opts, legend: { live: true }, cursor: { drag: { x: true, y: false } } }, arr, box);

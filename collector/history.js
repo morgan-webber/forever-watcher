@@ -2,12 +2,12 @@
  * Per-house price history.
  *
  * hist = {
- *   items: { [key]: { h: [[hour, mv, min, qty, n]], d: [[day, mv, min, qty, sold, expired, soldValue]] } },
+ *   items: { [key]: { h: [[hour, mv, min, qty, n, sold?]], d: [[day, mv, min, qty, sold, expired, soldValue]] } },
  *   track: { [day]: hoursOfLifecycleTracking },
  * }
  * hour = epoch hours, day = epoch days (UTC). Prices are copper per unit.
  */
-export const H = { HOUR: 0, MV: 1, MIN: 2, QTY: 3, N: 4 };
+export const H = { HOUR: 0, MV: 1, MIN: 2, QTY: 3, N: 4, SOLD: 5 };
 export const D = { DAY: 0, MV: 1, MIN: 2, QTY: 3, SOLD: 4, EXP: 5, SOLDV: 6 };
 
 export const toHour = (ms) => Math.floor(ms / 3_600_000);
@@ -32,8 +32,9 @@ export function recordSnapshot(hist, nowMs, stats, keepHours) {
   const minHour = hour - keepHours;
   for (const [key, s] of stats) {
     const e = (hist.items[key] ??= { h: [], d: [] });
-    if (e.h.at(-1)?.[H.HOUR] === hour) e.h.pop();
-    e.h.push([hour, s.mv, s.min, s.qty, s.n]);
+    // A second scan in the same hour replaces the point but keeps the hour's sales count.
+    const prev = e.h.at(-1)?.[H.HOUR] === hour ? e.h.pop() : null;
+    e.h.push(prev?.[H.SOLD] ? [hour, s.mv, s.min, s.qty, s.n, prev[H.SOLD]] : [hour, s.mv, s.min, s.qty, s.n]);
   }
   for (const e of Object.values(hist.items)) {
     while (e.h.length && e.h[0][H.HOUR] <= minHour) e.h.shift();
@@ -49,11 +50,15 @@ export function recordSnapshot(hist, nowMs, stats, keepHours) {
 
 export function recordSales(hist, nowMs, sold, expired) {
   const day = toDay(nowMs);
+  const hour = toHour(nowMs);
   for (const [key, s] of sold) {
     const e = (hist.items[key] ??= { h: [], d: [] });
     const row = dailyRow(e, day);
     row[D.SOLD] += s.qty;
     row[D.SOLDV] += s.value;
+    // Hourly volume: sales seen at this scan go on this hour's point (if the item is still listed).
+    const p = e.h.at(-1);
+    if (p && p[H.HOUR] === hour) p[H.SOLD] = (p[H.SOLD] ?? 0) + s.qty;
   }
   for (const [key, x] of expired) {
     const e = (hist.items[key] ??= { h: [], d: [] });

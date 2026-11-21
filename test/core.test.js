@@ -84,3 +84,15 @@ test("deposit has a minimum and gold formats copper", () => {
   assert.equal(depositFor(0, 10, { depositMinCopper: 100, depositVendorRate: 0.15 }), 100);
   assert.equal(gold(1234567), "123g 45s 67c");
 });
+
+test("hourly points carry estimated sales and keep them across a same-hour rescan", () => {
+  const hist = emptyHistory();
+  const t = Date.UTC(2026, 10, 21, 10, 5);
+  recordSnapshot(hist, t, new Map([["5", { mv: 100, min: 90, qty: 50, n: 5 }]]), 96);
+  recordSales(hist, t, new Map([["5", { qty: 7, n: 2, value: 700 }]]), new Map());
+  assert.equal(hist.items["5"].h.at(-1)[5], 7);
+  recordSnapshot(hist, t + 20 * 60000, new Map([["5", { mv: 101, min: 91, qty: 45, n: 5 }]]), 96);
+  assert.equal(hist.items["5"].h.length, 1);
+  assert.equal(hist.items["5"].h[0][5], 7, "sales survive the rescan");
+  assert.equal(hist.items["5"].h[0][1], 101);
+});

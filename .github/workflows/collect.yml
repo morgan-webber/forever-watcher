@@ -1,8 +1,11 @@
 name: Collect and deploy
 
+# Cadence: every run queues the next one for :07 past the next hour (the `next` job below).
+# GitHub's own cron is best-effort and skips hours on new repos, so it is only a backstop
+# that restarts the chain if a run ever fails to queue its successor.
 on:
   schedule:
-    - cron: "7 * * * *" # hourly, at :07 UTC
+    - cron: "7 */3 * * *"
   workflow_dispatch:
   push:
     branches: [main]
@@ -12,13 +15,15 @@ permissions:
   contents: write # daily state backup to the `data` branch
   pages: write
   id-token: write
-
-concurrency:
-  group: collect
-  cancel-in-progress: false
+  actions: write # lets a run queue the next hourly run
 
 jobs:
   collect:
+    # Only one collection at a time; the waiting `next` job is outside this lock so it
+    # never delays a deploy.
+    concurrency:
+      group: collect
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 40
     environment:
@@ -75,7 +80,8 @@ jobs:
         run: echo "h=$(date -u +%H)" >> "$GITHUB_OUTPUT"
 
       - name: Back up state to the data branch (daily, or on manual runs)
-        if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && steps.hour.outputs.h == '00')
+        # Daily at 00 UTC, or when you start a run by hand.
+        if: steps.hour.outputs.h == '00' || (github.event_name == 'workflow_dispatch' && github.actor != 'github-actions[bot]')
         run: |
           cd state
           git init -q
@@ -93,3 +99,25 @@ jobs:
 
       - id: deploy
         uses: actions/deploy-pages@v4
+
+  next:
+    needs: collect
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - name: Wait for :07 past the next hour, then queue the next run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          now=$(date -u +%s)
+          wait=$(( (3600 - now % 3600 + 420) % 3600 ))
+          [ "$wait" -lt 600 ] && wait=$(( wait + 3600 ))
+          echo "Sleeping ${wait}s"
+          sleep "$wait"
+          # Exactly one chain: only the newest run queues the next. If a newer run exists
+          # (a push, a manual run or the cron backstop), it owns the chain instead.
+          newer=$(gh api "repos/$REPO/actions/workflows/collect.yml/runs?per_page=20" --jq '[.workflow_runs[] | select(.id > ${{ github.run_id }})] | length')
+          if [ "$newer" -gt 0 ]; then echo "A newer run exists; it will queue the next one."; exit 0; fi
+          gh workflow run collect.yml --repo "$REPO" --ref main
