@@ -1,6 +1,7 @@
 name: Collect and deploy
 
-# Cadence: every run queues the next one for :07 past the next hour (the `next` job below).
+# Cadence: every run queues the next one for a few minutes after Blizzard's next hourly snapshot
+# (the `next` job below).
 # GitHub's own cron is best-effort and skips hours on new repos, so it is only a backstop
 # that restarts the chain if a run ever fails to queue its successor.
 on:
@@ -26,6 +27,8 @@ jobs:
       cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 40
+    outputs:
+      wake_minute: ${{ steps.collect.outputs.wake_minute }}
     steps:
       - uses: actions/checkout@v7
 
@@ -58,6 +61,7 @@ jobs:
           fi
 
       - name: Collect
+        id: collect
         env:
           BLIZZARD_CLIENT_ID: ${{ secrets.BLIZZARD_CLIENT_ID }}
           BLIZZARD_CLIENT_SECRET: ${{ secrets.BLIZZARD_CLIENT_SECRET }}
@@ -111,13 +115,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 75
     steps:
-      - name: Wait for :07 past the next hour, then queue the next run
+      # Wakes a few minutes after Blizzard's hourly publish time (learned from Last-Modified by the
+      # collect job), so the site's prices are minutes old rather than up to an hour old.
+      - name: Wait for Blizzard's next hourly snapshot, then queue the next run
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          WAKE_MINUTE: ${{ needs.collect.outputs.wake_minute }}
         run: |
+          m=${WAKE_MINUTE:-32}
           now=$(date -u +%s)
-          wait=$(( (3600 - now % 3600 + 420) % 3600 ))
+          wait=$(( (3600 - now % 3600 + m * 60) % 3600 ))
           [ "$wait" -lt 600 ] && wait=$(( wait + 3600 ))
           echo "Sleeping ${wait}s"
           sleep "$wait"

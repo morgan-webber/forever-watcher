@@ -6,10 +6,13 @@ const store = {
   set(k, v) { try { localStorage.setItem(`fw:${k}`, JSON.stringify(v)); } catch { /* storage unavailable */ } },
 };
 
+// Data files are versioned by the meta's generation time, so the CDN and browser can't serve an
+// older copy, and an open tab picks up each new hourly snapshot (see watchForUpdates).
 const cache = new Map();
+let dataVersion = "";
 async function load(path) {
   if (!cache.has(path)) {
-    cache.set(path, fetch(`data/${path}`, { cache: "no-cache" }).then((r) => {
+    cache.set(path, fetch(`data/${path}?v=${dataVersion}`, { cache: "no-cache" }).then((r) => {
       if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
       return r.json();
     }).catch((e) => { cache.delete(path); throw e; }));
@@ -767,7 +770,8 @@ function fillGroups() {
   $("#group").value = S.group;
 }
 
-async function route() {
+async function route(opts = {}) {
+  const y = window.scrollY;
   const el = $("#view");
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
   document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active", a.dataset.nav === ({ "": "opps", houses: "houses", house: "houses", watch: "watch", status: "status", market: "market", trends: "trends", item: "market", crafting: "crafting" })[parts[0] ?? ""]));
@@ -792,12 +796,52 @@ async function route() {
   } catch (e) {
     fresh.innerHTML = `<p class="empty">Couldn't load this page: ${esc(e.message)}</p>`;
   }
-  window.scrollTo(0, 0);
+  window.scrollTo(0, opts.keepScroll ? y : 0);
+}
+
+async function fetchMeta() {
+  const r = await fetch(`data/meta.json?t=${Date.now()}`, { cache: "no-store" });
+  if (!r.ok) throw new Error(`meta.json: HTTP ${r.status}`);
+  return r.json();
+}
+
+function toast(msg) {
+  let t = $("#toast");
+  if (!t) {
+    t = document.createElement("div");
+    t.id = "toast";
+    t.setAttribute("role", "status");
+    document.body.append(t);
+  }
+  t.textContent = msg;
+  t.classList.add("show");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => t.classList.remove("show"), 6000);
+}
+
+/** Every 5 minutes (and when the tab regains focus), load new data if a newer snapshot exists. */
+function watchForUpdates() {
+  const check = async () => {
+    try {
+      const meta = await fetchMeta();
+      if (meta.generatedAt === S.meta.generatedAt) return;
+      cache.clear();
+      index.maps = {};
+      S.meta = meta;
+      dataVersion = encodeURIComponent(meta.generatedAt);
+      $("#generated").textContent = `Updated ${ago(S.meta.generatedAt)}.`;
+      if (!document.activeElement?.closest?.("input, select")) await route({ keepScroll: true });
+      toast(`Prices updated · Blizzard data from ${new Date(Math.max(...Object.values(meta.regions).flatMap((r) => r.houses.map((h) => h.dataTime ?? h.lastScan ?? 0)))).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`);
+    } catch { /* offline: try again later */ }
+  };
+  setInterval(check, 5 * 60_000);
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) check(); });
 }
 
 async function main() {
   try {
-    S.meta = await load("meta.json");
+    S.meta = await fetchMeta();
+    dataVersion = encodeURIComponent(S.meta.generatedAt);
   } catch {
     $("#view").innerHTML = '<p class="empty">No data has been published yet. The first collection run creates it.</p>';
     return;
@@ -818,5 +862,6 @@ async function main() {
   setupSearch();
   window.addEventListener("hashchange", route);
   route();
+  watchForUpdates();
 }
 main();

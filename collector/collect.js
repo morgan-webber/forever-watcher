@@ -191,6 +191,15 @@ export async function collect({ client, config, stateDir, outDir, nowMs = Date.n
     regions[region] = { houses: houseData.map((h) => h.house), allHouses: houses, hists, opps, focus, ladders: new Map(houseData.map((h) => [h.house.id, h.ladders])), houseData, vendorIds };
   }
 
+  // Tell the workflow when Blizzard publishes, so the next run can wake just after it.
+  const dataTimes = Object.values(meta.lastScan).map((s) => s.dataT).filter((t) => t && nowMs - t < 3 * 3_600_000);
+  if (dataTimes.length && process.env.GITHUB_OUTPUT) {
+    const newest = new Date(Math.max(...dataTimes));
+    const { appendFile } = await import("node:fs/promises");
+    await appendFile(process.env.GITHUB_OUTPUT, `wake_minute=${(newest.getUTCMinutes() + 6) % 60}\n`);
+    log(`Blizzard's newest snapshot: ${newest.toISOString()}; next run wakes at :${String((newest.getUTCMinutes() + 6) % 60).padStart(2, "0")}`);
+  }
+
   // 5. Backtest.
   logOpportunities(btLog, allOpps, nowMs);
   evaluate(btLog, (region, hid) => regions[region]?.hists.get(hid), nowMs, settings);
