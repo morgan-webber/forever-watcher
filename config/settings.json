@@ -1,0 +1,25 @@
+{
+  "regions": {
+    "us": { "locale": "en_US" },
+    "eu": { "locale": "en_GB" }
+  },
+  "listRuleset": 2,
+  "groupNames": {
+    "eu": { "1": "PvP (reported)", "2": "Normal (reported)" },
+    "us": {}
+  },
+  "hourlyKeepHours": 96,
+  "dailyKeepDays": 365,
+  "gapHours": 2.5,
+  "baselineDays": 14,
+  "velocityDays": 7,
+  "flipThreshold": 0.7,
+  "horizonDays": 3,
+  "minProfitCopper": 10000,
+  "minRoi": 0.15,
+  "arbMinProfitCopper": 20000,
+  "minSoldPerDay": 0.5,
+  "itemBackfillPerRun": 1500,
+  "maxOppsPerRegion": 400,
+  "backtestWindowDays": 30
+}

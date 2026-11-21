@@ -1,0 +1,7 @@
+{
+  "cutRate": 0.05,
+  "depositMinCopper": 100,
+  "depositVendorRate": 0.15,
+  "verified": false,
+  "note": "Blizzard has not published WoW: Forever's AH commission or deposit formula. These are classic-era assumptions: 5% cut on sale, deposit = 15% of vendor sell price per listing with a 1 silver minimum (a cut to 1 copper was announced but delayed). Sell one item in game, read the sale mail, and correct these numbers."
+}

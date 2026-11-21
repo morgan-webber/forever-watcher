@@ -1,0 +1,21 @@
+{
+  "enabled": true,
+  "cooldownHours": 6,
+  "opportunities": {
+    "minProfitCopper": 500000,
+    "minGrade": "B",
+    "types": ["flip", "vendor", "arbitrage"],
+    "regions": ["us", "eu"],
+    "groups": [],
+    "maxPerRun": 10
+  },
+  "rules": [
+    {
+      "comment": "Example: tell me when Linen Cloth (2589) is at or under 10 silver in any US house. Delete or edit.",
+      "region": "us",
+      "house": "any",
+      "item": "2589",
+      "below": 1000
+    }
+  ]
+}

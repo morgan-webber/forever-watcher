@@ -1,0 +1,15 @@
+{
+  "name": "forever-watcher",
+  "version": "0.1.0",
+  "private": true,
+  "description": "WoW: Forever auction house price history and profit-opportunity finder, built from Blizzard's Game Data API and served on GitHub Pages.",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "collect": "node collector/run.js",
+    "demo": "node collector/demo.js",
+    "build:site": "node collector/build-site.js",
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "license": "MIT"
+}
