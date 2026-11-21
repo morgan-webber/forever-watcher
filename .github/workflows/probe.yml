@@ -1,0 +1,31 @@
+name: Probe data sources
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["collector/probe.js", ".github/workflows/probe.yml"]
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Probe
+        env:
+          BLIZZARD_CLIENT_ID: ${{ secrets.BLIZZARD_CLIENT_ID }}
+          BLIZZARD_CLIENT_SECRET: ${{ secrets.BLIZZARD_CLIENT_SECRET }}
+        run: node collector/probe.js
+      - name: Publish results to the probe branch
+        run: |
+          cd probe
+          git init -q && git checkout -q -b probe && git add -A
+          git -c user.name="forever-watcher" -c user.email="actions@users.noreply.github.com" commit -qm "Probe $(date -u +%FT%TZ)"
+          git push -qf "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" probe
