@@ -7,11 +7,14 @@
  *   items/<region>/<baseId>.json       history + metrics + current listing ladder per variant per house
  *   market-<region>.json               every listed item: current prices per house, trends, sparkline
  *   pulse-<region>.json                market-wide activity per house over time
+ *   recipes-<region>.json              every recipe priced per house (reagent cost, product value, profit)
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { metrics, H, D, toHour, toDay } from "./history.js";
 import { baseId } from "./summarise.js";
+import { recipeTable, nameIndex } from "./crafting.js";
+import { deValue, DE_SOURCE } from "./disenchant.js";
 
 const r3 = (x) => (x == null ? null : Math.round(x * 1000) / 1000);
 
@@ -20,11 +23,12 @@ async function write(file, value) {
   await fs.writeFile(file, JSON.stringify(value));
 }
 
-export async function publish({ outDir, regions, items, settings, fees, backtest, nowMs, demo }) {
+export async function publish({ outDir, regions, items, settings, fees, backtest, nowMs, demo, catalog }) {
   const dataDir = path.join(outDir, "data");
   await fs.rm(dataDir, { recursive: true, force: true });
   const nowHour = toHour(nowMs);
-  const meta = { generatedAt: new Date(nowMs).toISOString(), demo: !!demo, fees, settings: pick(settings), backtest, regions: {} };
+  const meta = { generatedAt: new Date(nowMs).toISOString(), demo: !!demo, fees, settings: pick(settings), backtest, regions: {}, catalog: catalog ? { build: catalog.build, recipes: catalog.recipes.length, fetchedAt: catalog.fetchedAt } : null, deSource: DE_SOURCE };
+  const byName = nameIndex(items);
 
   for (const [region, R] of Object.entries(regions)) {
     const keys = new Set();
@@ -81,8 +85,39 @@ export async function publish({ outDir, regions, items, settings, fees, backtest
     meta.regions[region].historyHours = span.hours;
     meta.regions[region].trackedHours = span.tracked;
 
+    // Recipes priced per house.
+    if (catalog?.recipes?.length && R.houseData) {
+      const rows = recipeTable(R.houseData, items, catalog, settings, fees, nowMs, R.vendorIds ?? new Set());
+      const ids = new Set();
+      for (const r of rows) {
+        if (r[4]) ids.add(r[4]);
+        for (const [id] of r[6]) ids.add(id);
+      }
+      const names = Object.fromEntries([...ids].map((id) => [id, [items[id]?.n ?? null, items[id]?.q ?? null, items[id]?.icon ?? null, (R.vendorIds?.has(id) ? items[id]?.buy : null) ?? null]]));
+      await write(path.join(dataDir, `recipes-${region}.json`), { houses: R.houses.map((h) => h.id), professions: catalog.professions, names, rows });
+    }
+
+    // Disenchant breakdown per house for disenchantable items (Classic odds).
+    const cut = fees.cutRate ?? 0.05;
+    const deFor = (b) => {
+      const m = items[b];
+      if (!m?.lvl || !R.houseData) return null;
+      const houses = {};
+      let outs = null;
+      for (const hd of R.houseData) {
+        const priceOf = (name) => {
+          const id = byName.get(name.toLowerCase());
+          return id ? hd.stats.get(String(id))?.mv ?? null : null;
+        };
+        const v = deValue(m, priceOf, cut);
+        if (!v) return null;
+        outs = v.parts.map((p) => [byName.get(p.name.toLowerCase()) ?? null, p.name, p.p, p.lo, p.hi]);
+        houses[hd.house.id] = [v.ev, v.parts.map((p) => p.unit), r3(v.unpricedShare)];
+      }
+      return outs ? { lvl: m.lvl, q: m.q, outs, houses } : null;
+    };
     for (const [b, vmap] of perItem) {
-      await write(path.join(dataDir, "items", region, `${b}.json`), { base: b, variants: vmap });
+      await write(path.join(dataDir, "items", region, `${b}.json`), { base: b, variants: vmap, de: deFor(b) });
     }
   }
   await write(path.join(dataDir, "meta.json"), meta);

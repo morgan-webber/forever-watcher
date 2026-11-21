@@ -10,12 +10,20 @@ import { diffLifecycle } from "./lifecycle.js";
 import { emptyHistory, recordSnapshot, recordSales, recordTracking, prune } from "./history.js";
 import { backfillItems } from "./items.js";
 import { findOpportunities } from "./opportunities.js";
+import { refreshRecipes, refreshClientItems } from "./catalog.js";
+import { findCrafts, findDisenchants, resolveVendorIds } from "./crafting.js";
 import { logOpportunities, evaluate, summarise as summariseBacktest } from "./backtest.js";
 import { collectAlerts, postDiscord } from "./alerts.js";
 import { publish } from "./publish.js";
 
-export async function collect({ client, config, stateDir, outDir, nowMs = Date.now(), log = console.log, discordWebhook, siteUrl, demo = false, fetchImpl, skipItems = false, skipPublish = false }) {
-  const { settings, fees, alerts: alertConfig } = config;
+const defaultFetchText = async (url) => {
+  const r = await fetch(url, { headers: { "User-Agent": "forever-watcher (github.com/morgan-webber/forever-watcher)" } });
+  if (!r.ok) throw new Error(`${url}: HTTP ${r.status}`);
+  return r.text();
+};
+
+export async function collect({ client, config, stateDir, outDir, nowMs = Date.now(), log = console.log, discordWebhook, siteUrl, demo = false, fetchImpl, fetchText = defaultFetchText, skipItems = false, skipPublish = false, skipCatalog = false }) {
+  const { settings, fees, alerts: alertConfig, vendorReagents } = config;
   const S = (...p) => path.join(stateDir, ...p);
   const meta = await readJson(S("meta.json"), { houses: {}, lastScan: {}, housesCheckedAt: {} });
   const items = await readJson(S("items.json.gz"), {});
@@ -25,6 +33,22 @@ export async function collect({ client, config, stateDir, outDir, nowMs = Date.n
   const current = {};
   const allOpps = [];
   const stats = { fetched: 0, unchanged: 0, failed: 0 };
+
+  // Catalog: Forever client item table (fallback item data) and Blizzard recipes.
+  let clientItems = await readJson(S("client-items.json.gz"), null);
+  let catalog = await readJson(S("catalog.json.gz"), null);
+  if (!skipCatalog) {
+    const firstRegion = Object.keys(settings.regions)[0];
+    const ci = await refreshClientItems(clientItems, { fetchText, now: nowMs, log });
+    if (ci !== clientItems) await writeJson(S("client-items.json.gz"), (clientItems = ci));
+    const cat = await refreshRecipes(client, catalog, { region: firstRegion, locale: settings.regions[firstRegion].locale, now: nowMs, log });
+    if (cat !== catalog) await writeJson(S("catalog.json.gz"), (catalog = cat));
+  }
+  const recipeItemIds = new Set();
+  for (const r of catalog?.recipes ?? []) {
+    if (r[4]) recipeItemIds.add(r[4]);
+    for (const [id] of r[7]) recipeItemIds.add(id);
+  }
 
   for (const [region, rc] of Object.entries(settings.regions)) {
     log(`[${region}]`);
@@ -111,14 +135,20 @@ export async function collect({ client, config, stateDir, outDir, nowMs = Date.n
     if (!skipItems) {
       const ids = new Set();
       for (const h of houseData) for (const k of h.stats.keys()) ids.add(baseId(k));
-      await backfillItems(client, items, [...ids], { region, locale: rc.locale, limit: settings.itemBackfillPerRun, now: nowMs, log });
+      for (const id of recipeItemIds) ids.add(id);
+      await backfillItems(client, items, [...ids], { region, locale: rc.locale, limit: settings.itemBackfillPerRun, now: nowMs, log, clientItems: clientItems?.items });
     }
 
-    // 4. Opportunities.
-    const opps = findOpportunities(region, houseData, items, settings, fees, nowMs);
-    log(`  ${opps.length} opportunities (${["flip", "vendor", "arbitrage"].map((t) => `${opps.filter((o) => o.type === t).length} ${t}`).join(", ")})`);
+    // 4. Opportunities: market trades, crafting and disenchanting.
+    const vendorIds = resolveVendorIds(items, vendorReagents?.names);
+    const opps = [
+      ...findOpportunities(region, houseData, items, settings, fees, nowMs),
+      ...findCrafts(region, houseData, items, catalog, settings, fees, nowMs, vendorIds),
+      ...findDisenchants(region, houseData, items, settings, fees, nowMs),
+    ].sort((a, b) => b.ev - a.ev).slice(0, settings.maxOppsPerRegion);
+    log(`  ${opps.length} opportunities (${["flip", "vendor", "arbitrage", "craft", "disenchant"].map((t) => `${opps.filter((o) => o.type === t).length} ${t}`).join(", ")})`);
     allOpps.push(...opps);
-    regions[region] = { houses: houseData.map((h) => h.house), allHouses: houses, hists, opps, focus, ladders: new Map(houseData.map((h) => [h.house.id, h.ladders])) };
+    regions[region] = { houses: houseData.map((h) => h.house), allHouses: houses, hists, opps, focus, ladders: new Map(houseData.map((h) => [h.house.id, h.ladders])), houseData, vendorIds };
   }
 
   // 5. Backtest.
@@ -139,7 +169,7 @@ export async function collect({ client, config, stateDir, outDir, nowMs = Date.n
   await writeJson(S("items.json.gz"), items);
   await writeJson(S("backtest.json.gz"), btLog);
   await writeJson(S("alerts-sent.json"), sent);
-  if (!skipPublish) await publish({ outDir, regions, items, settings, fees, backtest, nowMs, demo });
+  if (!skipPublish) await publish({ outDir, regions, items, settings, fees, backtest, nowMs, demo, catalog });
   log(`done: ${stats.fetched} houses updated, ${stats.unchanged} unchanged, ${stats.failed} failed, ${client.callCount?.() ?? "?"} API calls`);
   return { stats, opps: allOpps, backtest, messages };
 }

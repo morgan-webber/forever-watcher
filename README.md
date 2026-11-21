@@ -12,6 +12,8 @@ Finds high-margin trades on WoW: Forever auction houses. An hourly GitHub Action
 | Summarise | Per item: min buyout, market value (the cheapest 15% of units, outliers trimmed), percentiles, quantity listed. |
 | Estimate sales | Auction IDs are followed from snapshot to snapshot. One that disappears with LONG or VERY_LONG time left counts as sold. One that disappears from SHORT or MEDIUM counts as expired. A drop in a commodity stack's quantity counts as a partial sale. This errs low on purpose. Cancelled auctions look the same as sales. |
 | Score | `EV = units × relist × (1 − cut) − cost − (1/p − 1) × deposit`. Units are capped at estimated sales per day × 3 days. The relist price undercuts the cheapest listing left after your purchase. Grade A–D reflects how much history and sales data backs the estimate. |
+| Crafting | Every recipe from Blizzard's API (`static-forever` professions → skill tiers → recipes). Reagents are priced by walking their current listings for the quantity needed (vendor trade supplies at the vendor price, per `config/vendor-reagents.json`); the product at its relist price after the cut; crafts capped by the product's sales. |
+| Disenchanting | Blizzard publishes no disenchant data, so outcomes use the Classic tables from warcraft.wiki.gg by item level, labelled unverified. Item levels come from Blizzard's item API, or the Forever client's own item table (via wago.tools) where the API has no entry. |
 | Backtest | Every flagged trade is checked once its 3-day horizon has passed. It's a hit if the price held at or above the relist price and estimated sales covered the units. The hit rate is shown on the site. |
 | Alerts | Optional Discord webhook: top new opportunities, plus price rules in `config/alerts.json`. |
 

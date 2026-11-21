@@ -124,6 +124,8 @@ const TYPE_INFO = {
   flip: "Underpriced listings bought and relisted in the same house.",
   arbitrage: "Bought in one house, relisted in another house of the same ruleset group.",
   vendor: "Listed below the vendor sell price: buy and sell to any merchant.",
+  craft: "Buy the reagents, craft, and sell the product. Needs the recipe.",
+  disenchant: "Buy gear priced under the value of what it disenchants into (Classic odds, unverified). Needs Enchanting.",
 };
 
 function warmup() {
@@ -155,7 +157,7 @@ async function viewOpps(el) {
       ${btCard("flip")}${btCard("arbitrage")}
     </div>
     <div class="filters">
-      <label>Type<select id="f-type"><option value="all">All</option><option value="flip">Flip</option><option value="arbitrage">Arbitrage</option><option value="vendor">Vendor</option></select></label>
+      <label>Type<select id="f-type"><option value="all">All</option><option value="flip">Flip</option><option value="arbitrage">Arbitrage</option><option value="vendor">Vendor</option><option value="craft">Craft</option><option value="disenchant">Disenchant</option></select></label>
       <label>Min profit (g)<input id="f-minProfit" type="number" min="0" step="1"></label>
       <label>Min ROI (%)<input id="f-minRoi" type="number" min="0" step="5"></label>
       <label>Min grade<select id="f-grade"><option>A</option><option>B</option><option>C</option><option>D</option></select></label>
@@ -182,10 +184,10 @@ async function viewOpps(el) {
       { key: "name", label: "Item", html: (o) => itemCell(o.name, o.q, o.icon, [bonusOf(o.key) ? `variant ${bonusOf(o.key)}` : "", o.note ? esc(o.note) : ""].filter(Boolean).join(" · ")), sort: (o) => o.name },
       { key: "type", label: "Type", html: (o) => `<span class="pill t-${o.type}" title="${esc(TYPE_INFO[o.type])}">${o.type}</span>`, sort: (o) => o.type },
       { key: "buy", label: "Buy in", html: (o) => houseLabel(o.buy) },
-      { key: "sell", label: "Sell in", html: (o) => (o.type === "vendor" ? '<span class="sub">any vendor</span>' : houseLabel(o.sell)) },
+      { key: "sell", label: "Sell in", html: (o) => (o.type === "vendor" ? '<span class="sub">any vendor</span>' : o.type === "disenchant" ? '<span class="sub">materials, same house</span>' : houseLabel(o.sell)) },
       { key: "units", label: "Units", num: true, html: (o) => o.units.toLocaleString(), sort: (o) => o.units },
-      { key: "buyMax", label: "Buy ≤", num: true, title: "Highest unit price you pay", html: (o) => money(o.buyMax), sort: (o) => o.buyMax },
-      { key: "sellAt", label: "Relist at", num: true, title: "Per unit", html: (o) => money(o.sellAt), sort: (o) => o.sellAt },
+      { key: "buyMax", label: "Buy ≤", num: true, title: "Highest unit price you pay", html: (o) => (o.type === "craft" ? `<span class="sub">${o.crafts} crafts</span>` : money(o.buyMax)), sort: (o) => o.buyMax },
+      { key: "sellAt", label: "Relist at", num: true, title: "Per unit (disenchant: material value per item)", html: (o) => money(o.sellAt), sort: (o) => o.sellAt },
       { key: "cost", label: "Capital", num: true, html: (o) => money(o.cost), sort: (o) => o.cost },
       { key: "ev", label: "Exp. profit", num: true, html: (o) => `<b>${money(o.ev)}</b>`, sort: (o) => o.ev },
       { key: "roi", label: "ROI", num: true, html: (o) => pct(o.roi), sort: (o) => o.roi },
@@ -391,6 +393,7 @@ async function viewItem(el, region, base, variantKey) {
     if (w) { w.target = e.target.value ? goldToCopper(e.target.value) : null; store.set("watch", S.watch); }
   });
   requestAnimationFrame(draw);
+  itemExtras(el, base, file, houses().map((h) => h.id)).catch(() => {});
 }
 
 // ---------- market (latest snapshot, every item) ----------
@@ -505,6 +508,101 @@ async function viewTrends(el) {
   };
   $("#t-min", el).addEventListener("input", draw);
   draw();
+}
+
+// ---------- crafting ----------
+async function loadRecipes() {
+  try { return await load(`recipes-${S.region}.json`); } catch { return null; }
+}
+const reagentLabel = (R, id, n) => {
+  const nm = R.names[id] ?? [];
+  const vendor = nm[3] != null;
+  return `<span class="reagent">${n}× <span class="q-${esc(nm[1] ?? "COMMON")}">${esc(nm[0] ?? `Item ${id}`)}</span>${vendor ? ' <span class="tag" title="Priced at the vendor (trade supplies). Edit config/vendor-reagents.json to change.">vendor</span>' : ""}</span>`;
+};
+
+async function viewCrafting(el) {
+  const R = await loadRecipes();
+  if (!R) { el.innerHTML = '<h1 class="illumined">Crafting</h1><p class="empty">Recipe data arrives with the next collection run.</p>'; return; }
+  const f = store.get("craftFilters", { prof: "", house: String(R.houses[0]), q: "", minSpd: "", onlyProfit: "1" });
+  if (!R.houses.map(String).includes(f.house)) f.house = String(R.houses[0]);
+  const profs = Object.entries(R.professions).filter(([id]) => R.rows.some((r) => String(r[2]) === id && r[4])).sort((a, b) => a[1].name.localeCompare(b[1].name));
+  el.innerHTML = `
+    <h1 class="illumined">Crafting</h1>
+    <p class="lead">Every recipe from Blizzard's API, priced at today's market: reagents at market value (or the vendor price for trade supplies), the product at its market value after the ${pct(S.meta.fees.cutRate, 0)} AH cut. Profit is per craft. For trades sized to what actually sells, see crafting on the Opportunities page.</p>
+    <div class="filters">
+      <label>Profession<select id="cf-prof"><option value="">All</option>${profs.map(([id, p]) => `<option value="${id}">${esc(p.name)}</option>`).join("")}</select></label>
+      <label>House<select id="cf-house">${R.houses.map((h) => `<option value="${h}">${esc(factionName(house(h) ?? { faction: "unknown" }))}</option>`).join("")}</select></label>
+      <label>Recipe or item<input id="cf-q" type="search" placeholder="filter by name"></label>
+      <label>Min sold/day<input id="cf-minSpd" type="number" min="0" step="0.5"></label>
+      <label>Show<select id="cf-onlyProfit"><option value="1">Profitable only</option><option value="">Everything priced</option><option value="all">All recipes</option></select></label>
+    </div>
+    <div id="cf-table"></div>
+    <p class="note">Recipes source: Blizzard Game Data API (WoW: Forever), ${S.meta.catalog?.recipes ?? "?"} recipes, build ${esc(S.meta.catalog?.build ?? "?")}. Recipes with no product (enchants) are left out of profit. Vendor-priced reagents follow <code>config/vendor-reagents.json</code>.</p>`;
+  for (const [k, v] of Object.entries(f)) { const i = $(`#cf-${k}`, el); if (i) i.value = v; }
+  const draw = () => {
+    for (const k of Object.keys(f)) f[k] = $(`#cf-${k}`, el).value;
+    store.set("craftFilters", f);
+    const hi = R.houses.map(String).indexOf(f.house);
+    const q = f.q.trim().toLowerCase();
+    const rows = R.rows.filter((r) => r[4]).map((r) => {
+      const [cost, value, profit, spd] = r[7][hi] ?? [];
+      const nm = R.names[r[4]] ?? [];
+      return { r, cost, value, profit, spd, margin: profit != null && cost ? profit / cost : null, name: nm[0] ?? r[1], q: nm[1] ?? "COMMON", icon: nm[2] };
+    }).filter((x) =>
+      (!f.prof || String(x.r[2]) === f.prof) &&
+      (!q || x.name.toLowerCase().includes(q) || x.r[1].toLowerCase().includes(q)) &&
+      (!f.minSpd || (x.spd ?? 0) >= Number(f.minSpd)) &&
+      (f.onlyProfit === "all" || (f.onlyProfit === "1" ? x.profit > 0 : x.cost != null && x.value != null)));
+    $("#cf-table", el).replaceChildren(table([
+      { key: "name", label: "Makes", html: (x) => itemCell(x.name, x.q, x.icon, `${esc(R.professions[x.r[2]]?.name ?? "")} · ${esc(x.r[3] ?? "")}${x.r[5] !== 1 ? ` · ${x.r[5]} per craft` : ""}`), sort: (x) => x.name },
+      { key: "reagents", label: "Reagents", html: (x) => `<div class="reagents">${x.r[6].map(([id, n]) => reagentLabel(R, id, n)).join("")}</div>` },
+      { key: "cost", label: "Cost", num: true, title: "Reagents for one craft", html: (x) => (x.cost == null ? '<span class="muted" title="A reagent has no market price here">can’t price</span>' : money(x.cost)), sort: (x) => x.cost },
+      { key: "value", label: "Sells for", num: true, title: "Market value of one craft's output, before the AH cut", html: (x) => (x.value == null ? '<span class="muted">not listed</span>' : money(x.value * x.r[5])), sort: (x) => (x.value == null ? null : x.value * x.r[5]) },
+      { key: "profit", label: "Profit", num: true, title: "Per craft, after the AH cut", html: (x) => (x.profit == null ? "–" : `<b class="${x.profit >= 0 ? "pos" : "neg"}">${money(x.profit)}</b>`), sort: (x) => x.profit },
+      { key: "margin", label: "Margin", num: true, html: (x) => (x.margin == null ? "–" : pct(x.margin)), sort: (x) => x.margin },
+      { key: "spd", label: "Sold/day", num: true, html: (x) => fixed(x.spd), sort: (x) => x.spd },
+      { key: "verdict", label: "", html: (x) => (x.profit == null ? "" : x.profit > 0 ? '<span class="pill t-craft">Craft it</span>' : '<span class="pill t-buy">Buy it</span>') },
+    ], rows, { sortKey: "profit", onRow: (x) => (location.hash = itemHref(S.region, String(x.r[4]))), empty: "No recipes match. Try “Everything priced” or another house.", limit: 150 }));
+  };
+  el.addEventListener("input", (e) => { if (e.target.closest(".filters")) draw(); });
+  draw();
+}
+
+/** Crafting + disenchanting sections for the item page. */
+async function itemExtras(el, base, file, houseIds) {
+  const R = await loadRecipes();
+  const out = [];
+  const id = Number(base);
+  if (R) {
+    const made = R.rows.filter((r) => r[4] === id);
+    const used = R.rows.filter((r) => r[6].some(([rid]) => rid === id));
+    if (made.length) {
+      out.push(`<div><h2>Crafted by</h2>${made.map((r) => `<div class="frame recipebox">
+        <div class="recipe-head"><b>${esc(r[1])}</b> <span class="note">${esc(R.professions[r[2]]?.name ?? "")}${r[5] !== 1 ? ` · makes ${r[5]}` : ""}</span></div>
+        <div class="reagents">${r[6].map(([rid, n]) => `<a href="${itemHref(S.region, String(rid))}">${reagentLabel(R, rid, n)}</a>`).join("")}</div>
+        <table class="mini"><thead><tr><th>House</th><th class="num">Reagents</th><th class="num">Sells for</th><th class="num">Profit</th></tr></thead><tbody>
+        ${R.houses.map((h, i) => { const [cost, value, profit] = r[7][i] ?? []; return `<tr><td>${houseLabel(h)}</td><td class="num">${cost == null ? '<span class="muted">can’t price</span>' : money(cost)}</td><td class="num">${value == null ? "–" : money(value * r[5])}</td><td class="num">${profit == null ? "–" : `<b class="${profit >= 0 ? "pos" : "neg"}">${money(profit)}</b>`}</td></tr>`; }).join("")}
+        </tbody></table></div>`).join("")}</div>`);
+    }
+    if (used.length) {
+      out.push(`<div><h2>Used in</h2><div class="tablewrap compact"><table><tbody>${used.slice(0, 30).map((r) => {
+        const nm = R.names[r[4]] ?? [];
+        const n = r[6].find(([rid]) => rid === id)[1];
+        const best = Math.max(...r[7].map((p) => p[2] ?? -Infinity));
+        return `<tr onclick="location.hash='${r[4] ? itemHref(S.region, String(r[4])) : ""}'"><td>${r[4] ? itemCell(nm[0] ?? r[1], nm[1] ?? "COMMON", nm[2], `${esc(R.professions[r[2]]?.name ?? "")} · needs ${n}`) : `${esc(r[1])}<div class="sub">${esc(R.professions[r[2]]?.name ?? "")} · needs ${n}</div>`}</td><td class="num">${Number.isFinite(best) ? `<span class="${best >= 0 ? "pos" : "neg"}">${money(best)}</span>` : "–"}</td></tr>`;
+      }).join("")}</tbody></table></div>${used.length > 30 ? `<p class="note">and ${used.length - 30} more</p>` : ""}</div>`);
+    }
+  }
+  if (file.de) {
+    const de = file.de;
+    out.push(`<div><h2>Disenchants into</h2><div class="frame recipebox">
+      <table class="mini"><thead><tr><th>Material</th><th class="num">Chance</th><th class="num">Quantity</th>${houseIds.map((h) => `<th class="num">${esc(factionName(house(h) ?? { faction: "unknown" }))}</th>`).join("")}</tr></thead><tbody>
+      ${de.outs.map(([mid, name, p, lo, hi], i) => `<tr><td>${mid ? `<a href="${itemHref(S.region, String(mid))}">${esc(name)}</a>` : esc(name)}</td><td class="num">${pct(p, p < 0.01 ? 1 : 0)}</td><td class="num">${lo === hi ? lo : `${lo}–${hi}`}</td>${houseIds.map((h) => `<td class="num">${money(de.houses[h]?.[1]?.[i])}</td>`).join("")}</tr>`).join("")}
+      <tr class="total"><td colspan="3"><b>Expected value per item</b> <span class="note">after the AH cut</span></td>${houseIds.map((h) => `<td class="num"><b>${money(de.houses[h]?.[0])}</b></td>`).join("")}</tr>
+      </tbody></table>
+      <p class="note">Item level ${de.lvl}. ${esc(S.meta.deSource ?? "Classic disenchanting tables, unverified for Forever")}. Blizzard publishes no disenchant data, so these odds may differ in Forever.</p></div></div>`);
+  }
+  if (out.length) el.insertAdjacentHTML("beforeend", `<div class="grid2 extras">${out.join("")}</div>`);
 }
 
 async function viewHouses(el) {
@@ -663,7 +761,7 @@ function fillGroups() {
 async function route() {
   const el = $("#view");
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
-  document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active", a.dataset.nav === ({ "": "opps", houses: "houses", house: "houses", watch: "watch", status: "status", market: "market", trends: "trends", item: "market" })[parts[0] ?? ""]));
+  document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active", a.dataset.nav === ({ "": "opps", houses: "houses", house: "houses", watch: "watch", status: "status", market: "market", trends: "trends", item: "market", crafting: "crafting" })[parts[0] ?? ""]));
   chart?.destroy();
   chart = null;
   depth?.destroy();
@@ -677,6 +775,7 @@ async function route() {
     else if (parts[0] === "houses") await viewHouses(fresh);
     else if (parts[0] === "market") await viewMarket(fresh);
     else if (parts[0] === "trends") await viewTrends(fresh);
+    else if (parts[0] === "crafting") await viewCrafting(fresh);
     else if (parts[0] === "house") await viewHouse(fresh, parts[1], Number(parts[2]));
     else if (parts[0] === "watch") await viewWatch(fresh);
     else if (parts[0] === "status") await viewStatus(fresh);

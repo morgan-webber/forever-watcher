@@ -77,8 +77,8 @@ jobs:
         run: echo "h=$(date -u +%H)" >> "$GITHUB_OUTPUT"
 
       - name: Back up state to the data branch (daily, or on manual runs)
-        # Daily at 00 UTC, or when you start a run by hand.
-        if: steps.hour.outputs.h == '00' || (github.event_name == 'workflow_dispatch' && github.actor != 'github-actions[bot]')
+        # Daily at 00 UTC, after a code push, or when you start a run by hand.
+        if: steps.hour.outputs.h == '00' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.actor != 'github-actions[bot]')
         run: |
           cd state
           git init -q

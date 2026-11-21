@@ -48,7 +48,16 @@ export const CATALOGUE = [
   [12363, "Arcane Crystal", "UNCOMMON", "Trade Goods", 0, 380_000, 0.8, 20, true],
   [13446, "Major Healing Potion", "COMMON", "Consumable", 250, 28_000, 4, 5, true],
   [13510, "Flask of the Titans", "COMMON", "Consumable", 1000, 900_000, 0.3, 1, false],
+  [2996, "Bolt of Linen Cloth", "COMMON", "Trade Goods", 40, 1000, 15, 10, true],
+  [2997, "Bolt of Woolen Cloth", "COMMON", "Trade Goods", 100, 3200, 10, 10, true],
+  [4305, "Bolt of Silk Cloth", "COMMON", "Trade Goods", 400, 11000, 8, 10, true],
+  [2840, "Copper Bar", "COMMON", "Trade Goods", 10, 1500, 15, 20, true],
+  [2568, "Brown Linen Vest", "COMMON", "Armor", 20, 2600, 1.2, 1, false],
+  [10939, "Greater Magic Essence", "UNCOMMON", "Trade Goods", 0, 9000, 3, 10, true],
+  [10978, "Small Glimmering Shard", "UNCOMMON", "Trade Goods", 0, 12000, 2, 20, true],
+  [2320, "Coarse Thread", "COMMON", "Trade Goods", 2, 0, 0, 20, true], // vendor-only: never posted
   [900001, "Demo Blade of the Bear", "UNCOMMON", "Weapon", 4200, 95_000, 0.25, 1, false],
+  [900004, "Demo Gloves of the Eagle", "UNCOMMON", "Armor", 600, 9000, 0.8, 1, false],
   [900002, "Demo Cloak of the Owl", "UNCOMMON", "Armor", 1800, 42_000, 0.3, 1, false],
   [900003, "Demo Helm of the Monkey", "UNCOMMON", "Armor", 2600, 60_000, 0.2, 1, false],
 ];
@@ -103,6 +112,7 @@ export function createMarket(region, seed = 1) {
         for (const it of h.items) {
           const P = it.c[5] * it.factor * daily;
           // Sellers.
+          if (!it.c[5]) continue; // vendor-only item
           const posts = Math.max(0, Math.round(it.demand * (0.8 + rand() * 0.6)));
           for (let i = 0; i < Math.max(posts > 0 ? 1 : 0, Math.round(posts / 4)); i++) {
             let price = P * Math.exp((rand() - 0.4) * 0.3);
@@ -174,14 +184,29 @@ export function createDemoClient(seed = 7) {
       }
       if ((m = apiPath.match(/\/item\/(\d+)$/))) {
         const c = byId.get(Number(m[1]));
-        if (!c || (ns === "static-forever" && c[0] % 3 === 0)) return { status: 404, json: null }; // mimic forever gaps
-        return { status: 200, json: { name: c[1], quality: { type: c[2] }, item_class: { name: c[3] }, sell_price: c[4], max_count: c[7] } };
+        if (!c || (ns === "static-forever" && c[0] % 3 === 0 && c[0] !== 2320)) return { status: 404, json: null }; // mimic forever gaps
+        const cls = { Weapon: 2, Armor: 4, "Trade Goods": 7, Consumable: 0 }[c[3]] ?? 15;
+        return { status: 200, json: { name: c[1], quality: { type: c[2] }, item_class: { name: c[3], id: cls }, sell_price: c[4], purchase_price: c[0] === 2320 ? 10 : c[4] * 4, max_count: c[7], level: c[0] >= 900000 ? 18 : c[0] === 2568 ? 10 : 5, required_level: c[0] >= 900000 ? 13 : 0 } };
+      }
+      if (apiPath === "/data/wow/profession/index") return { status: 200, json: { _links: { self: { href: "https://us.api.blizzard.com/data/wow/profession/?namespace=static-1.60.1_70399-forever-us" } }, professions: [{ id: 197, name: "Tailoring" }, { id: 186, name: "Mining" }] } };
+      if ((m = apiPath.match(/\/profession\/(\d+)$/))) return { status: 200, json: { id: Number(m[1]), type: { type: "PRIMARY" }, skill_tiers: [{ id: Number(m[1]) * 10 }] } };
+      if ((m = apiPath.match(/\/profession\/(\d+)\/skill-tier\/\d+$/))) {
+        const list = Number(m[1]) === 197 ? [2359, 2370, 2376, 2385] : [2657];
+        return { status: 200, json: { categories: [{ name: Number(m[1]) === 197 ? "Cloth" : "Smelting", recipes: list.map((id) => ({ id })) }] } };
+      }
+      if ((m = apiPath.match(/\/recipe\/(\d+)$/))) {
+        const R = { 2359: ["Bolt of Linen Cloth", 2996, [[2589, 2]]], 2370: ["Bolt of Woolen Cloth", 2997, [[2592, 3]]], 2376: ["Bolt of Silk Cloth", 4305, [[4306, 4]]], 2385: ["Brown Linen Vest", 2568, [[2996, 1], [2320, 1]]], 2657: ["Smelt Copper", 2840, [[2770, 1]]] }[m[1]];
+        if (!R) return { status: 404, json: null };
+        return { status: 200, json: { id: Number(m[1]), name: R[0], crafted_item: { id: R[1] }, reagents: R[2].map(([id, quantity]) => ({ reagent: { id }, quantity })), crafted_quantity: { value: 1 } } };
       }
       if (/\/media\/item\//.test(apiPath)) return { status: 404, json: null };
       return { status: 404, json: null };
     },
   };
 }
+
+// The client item table isn't simulated: an empty table means everything comes from the (fake) API.
+const demoFetchText = async (url) => (url.endsWith("/api/builds") ? JSON.stringify({ wowf: [{ version: "1.60.1.99999" }] }) : "ID,Display_lang,OverallQualityID,ItemLevel,RequiredLevel,SellPrice,BuyPrice,ClassID,SubclassID\n");
 
 export async function buildDemo({ config, outDir, stateDir, days = 6, endMs = Date.now(), log = () => {}, seed = 7 }) {
   const tmpState = stateDir ?? (await fs.mkdtemp(path.join(os.tmpdir(), "fw-demo-")));
@@ -192,7 +217,7 @@ export async function buildDemo({ config, outDir, stateDir, days = 6, endMs = Da
   for (let i = 0; i <= hours; i++) {
     const t = start + i * 3_600_000;
     client.setNow(t);
-    result = await collect({ client, config, stateDir: tmpState, outDir, nowMs: t, log: i === hours ? log : () => {}, demo: true, skipPublish: i !== hours });
+    result = await collect({ client, config, stateDir: tmpState, outDir, nowMs: t, log: i === hours ? log : () => {}, demo: true, skipPublish: i !== hours, fetchText: demoFetchText });
   }
   return result;
 }

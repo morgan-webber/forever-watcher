@@ -7,6 +7,8 @@
  * to the retail item endpoint for name, quality and class. Retail stats may differ from
  * Forever's, so only descriptive fields are used.
  */
+import { fromClient } from "./catalog.js";
+
 const RETRY_MISSING_MS = 7 * 86_400_000;
 
 /** The icon URL exactly as Blizzard's media endpoint returns it. */
@@ -33,10 +35,31 @@ async function lookup(client, region, locale, id, ns) {
     buy: j.purchase_price ?? 0,
     stack: j.max_count ?? null,
     icon,
+    lvl: j.level ?? null,
+    rl: j.required_level ?? null,
+    cid: j.item_class?.id ?? null,
   };
 }
 
-export async function backfillItems(client, db, ids, { region, locale, limit, now = Date.now(), log = console.log, concurrency = 8 }) {
+export async function backfillItems(client, db, ids, { region, locale, limit, now = Date.now(), log = console.log, concurrency = 8, clientItems = null }) {
+  // Upgrade earlier entries from the Forever client table: retail fallbacks become Forever data,
+  // and Forever entries gain item level and class if they predate those fields.
+  let upgraded = 0;
+  if (clientItems) {
+    for (const id of ids) {
+      const e = db[id];
+      const row = clientItems[id];
+      if (!e || !row) continue;
+      if (e.src === "retail" || e.src === "missing") {
+        db[id] = { ...fromClient(row), icon: e.icon ?? null, iconChecked: e.iconChecked, src: "client", t: now };
+        upgraded++;
+      } else if (e.lvl === undefined) {
+        const c = fromClient(row);
+        Object.assign(e, { lvl: c.lvl, rl: c.rl, cid: c.cid });
+        upgraded++;
+      }
+    }
+  }
   const todo = [];
   for (const id of ids) {
     const e = db[id];
@@ -53,6 +76,11 @@ export async function backfillItems(client, db, ids, { region, locale, limit, no
     try {
       let meta = await lookup(client, region, locale, id, "static-forever");
       let src = "forever";
+      if (!meta && clientItems?.[id]) {
+        // Forever API has no entry: use the Forever client table; take only the icon from retail.
+        meta = { ...fromClient(clientItems[id]), icon: await iconFor(client, region, locale, id, "static") };
+        src = "client";
+      }
       if (!meta) {
         meta = await lookup(client, region, locale, id, "static");
         src = "retail";
@@ -70,7 +98,7 @@ export async function backfillItems(client, db, ids, { region, locale, limit, no
   };
   const iconWork = async (id) => {
     const e = db[id];
-    e.icon = (await iconFor(client, region, locale, id, e.src === "retail" ? "static" : "static-forever")) ?? null;
+    e.icon = (await iconFor(client, region, locale, id, e.src === "forever" ? "static-forever" : "static")) ?? null;
     e.iconChecked = true;
   };
   // A few lookups in flight at once; the client spaces requests to stay under 100/s.
@@ -79,6 +107,6 @@ export async function backfillItems(client, db, ids, { region, locale, limit, no
   await Promise.all(Array.from({ length: Math.min(concurrency, jobs.length) }, async () => {
     while (next < jobs.length) await jobs[next++]();
   }));
-  log(`  items: ${batch.length} looked up (${ok} forever, ${fallback} retail fallback, ${missing} missing), ${todo.length - batch.length} still queued; ${iconBatch.length} icons refreshed`);
+  log(`  items: ${batch.length} looked up (${ok} forever, ${fallback} fallback, ${missing} missing), ${todo.length - batch.length} still queued; ${iconBatch.length} icons refreshed; ${upgraded} upgraded from the client table`);
   return { looked: batch.length, queued: todo.length - batch.length };
 }

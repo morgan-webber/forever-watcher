@@ -12,7 +12,7 @@ import { H, D, toDay } from "./history.js";
 export function logOpportunities(log, opps, nowMs) {
   const recent = new Set(log.filter((e) => nowMs - e.t < 86_400_000).map((e) => `${e.type}|${e.region}|${e.key}|${e.buy}|${e.sell}`));
   for (const o of opps) {
-    if (o.type === "vendor") continue;
+    if (o.type === "vendor" || o.type === "disenchant") continue; // nothing is relisted to check
     const id = `${o.type}|${o.region}|${o.key}|${o.buy}|${o.sell}`;
     if (recent.has(id)) continue;
     recent.add(id);

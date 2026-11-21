@@ -275,3 +275,21 @@ td .sub .money i::after { width: .55em; height: .55em; }
 .grid2.lists { grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); }
 @media (max-width: 560px) { .grid2.lists { grid-template-columns: 1fr; } }
 .warm-frame { padding: 18px 24px; margin-bottom: 18px; }
+
+/* ----- crafting ----- */
+.t-craft { background: linear-gradient(180deg, #b0773a, #6e4317); color: #fff1dd; }
+.t-disenchant { background: linear-gradient(180deg, #2f8f99, #175a61); color: #e6fbff; }
+.t-buy { background: linear-gradient(180deg, #5a5168, #383144); color: #e9e2f3; }
+.reagents { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 15px; }
+.reagent { white-space: nowrap; }
+.tag { font: 600 11px var(--heading); letter-spacing: .04em; color: var(--verdigris); border: 1px solid rgba(88,167,156,.5); border-radius: 3px; padding: 0 4px; margin-left: 2px; }
+.grid2.extras { margin-top: 10px; align-items: start; }
+.recipebox { padding: 14px 18px; margin-bottom: 14px; }
+.recipe-head { margin-bottom: 6px; font-size: 17px; }
+.recipebox .reagents { margin-bottom: 10px; }
+.recipebox .reagents a { color: inherit; }
+table.mini { width: 100%; }
+table.mini th { position: static; background: none; border-bottom: 1px solid var(--rule); cursor: default; padding: 6px 8px; }
+table.mini td { padding: 6px 8px; }
+table.mini tbody tr { cursor: default; }
+table.mini tr.total td { border-top: 1px solid var(--rule); border-bottom: 0; }

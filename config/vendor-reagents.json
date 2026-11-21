@@ -1,0 +1,10 @@
+{
+  "note": "Reagents assumed to be sold by trade-supply vendors. These are priced at Blizzard's vendor buy price (or the auction house, if cheaper). Blizzard's API can't tell which items vendors actually sell (it sets a buy price on nearly everything), so this list is maintained by hand. Names must match Blizzard's item names exactly. Add or remove items as you confirm them in game.",
+  "names": [
+    "Coarse Thread", "Fine Thread", "Silken Thread", "Heavy Silken Thread", "Rune Thread",
+    "Red Dye", "Blue Dye", "Gray Dye", "Green Dye", "Bleach",
+    "Weak Flux", "Strong Flux",
+    "Empty Vial", "Leaded Vial", "Crystal Vial", "Imbued Vial",
+    "Salt", "Mild Spices", "Hot Spices", "Soothing Spices", "Refreshing Spring Water", "Ice Cold Milk"
+  ]
+}

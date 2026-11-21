@@ -30,10 +30,11 @@ export async function writeJson(file, value) {
 }
 
 export async function loadConfig(root) {
-  const [settings, fees, alerts] = await Promise.all([
+  const [settings, fees, alerts, vendorReagents] = await Promise.all([
     readJson(path.join(root, "config/settings.json"), {}),
     readJson(path.join(root, "config/fees.json"), {}),
     readJson(path.join(root, "config/alerts.json"), { enabled: false, rules: [] }),
+    readJson(path.join(root, "config/vendor-reagents.json"), { names: [] }),
   ]);
-  return { settings, fees, alerts };
+  return { settings, fees, alerts, vendorReagents };
 }

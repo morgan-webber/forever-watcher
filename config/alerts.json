@@ -4,8 +4,17 @@
   "opportunities": {
     "minProfitCopper": 500000,
     "minGrade": "B",
-    "types": ["flip", "vendor", "arbitrage"],
-    "regions": ["us", "eu"],
+    "types": [
+      "flip",
+      "vendor",
+      "arbitrage",
+      "craft",
+      "disenchant"
+    ],
+    "regions": [
+      "us",
+      "eu"
+    ],
     "groups": [],
     "maxPerRun": 10
   },

@@ -37,7 +37,7 @@ export function depositFor(vendorSell, units, fees) {
 }
 
 /** Buys from the cheap end of a ladder while unit <= maxPrice, up to maxUnits. */
-function take(ladder, maxPrice, maxUnits) {
+export function take(ladder, maxPrice, maxUnits) {
   let units = 0;
   let cost = 0;
   let top = 0;
@@ -56,7 +56,7 @@ function take(ladder, maxPrice, maxUnits) {
   return { units, cost, top, floor };
 }
 
-function ev({ units, cost, sellAt, p, deposit, cut }) {
+export function ev({ units, cost, sellAt, p, deposit, cut }) {
   const pp = Math.max(0.2, p ?? 0.5);
   return Math.round(units * sellAt * (1 - cut) - cost - (1 / pp - 1) * deposit);
 }
@@ -82,7 +82,7 @@ export function findOpportunities(region, houses, items, settings, fees, nowMs) 
       // Vendor flips: certain, instant. Only with Forever's own vendor price: retail item data
       // (the fallback when static-forever 404s) carries much higher sell prices for many items.
       const vendor = meta?.sell ?? 0;
-      if (vendor > 0 && meta.src === "forever" && ladder[0][0] < vendor) {
+      if (vendor > 0 && (meta.src === "forever" || meta.src === "client") && ladder[0][0] < vendor) {
         const t = take(ladder, vendor - 1, Infinity);
         const profit = vendor * t.units - t.cost;
         if (profit >= s.minProfitCopper / 10 && t.units > 0) {
@@ -102,7 +102,7 @@ export function findOpportunities(region, houses, items, settings, fees, nowMs) 
       const t = take(ladder, Math.floor(m.baseline * s.flipThreshold), maxUnits);
       if (!t.units) continue;
       const sellAt = Math.max(1, Math.min(m.baseline, (t.floor ?? m.baseline) - 1));
-      const deposit = depositFor(meta?.src === "forever" ? vendor : 0, t.units, fees);
+      const deposit = depositFor(meta?.src === "forever" || meta?.src === "client" ? vendor : 0, t.units, fees);
       const value = ev({ units: t.units, cost: t.cost, sellAt, p: m.sellThrough, deposit, cut });
       if (value < s.minProfitCopper || value / t.cost < s.minRoi) continue;
       out.push({
