@@ -31,9 +31,28 @@ export function parseHouseIndex(json) {
     .filter((h) => Number.isFinite(h.id));
 }
 
-/** Can one character trade between these two houses without a cross-faction transfer? */
+/**
+ * Who can trade where: Alliance characters use the Alliance house and Blackwater; Horde characters
+ * use the Horde house and Blackwater. Goods can't move between the Alliance and Horde houses, so
+ * cross-house trades are only ever faction house <-> Blackwater, within one group (ruleset).
+ */
+export function canTrade(a, b) {
+  if (a.group !== b.group) return false;
+  if (a.id === b.id) return true;
+  return a.faction === "neutral" || b.faction === "neutral";
+}
+
+/** The faction whose characters can make this trade. */
+export function tradeFaction(a, b) {
+  const f = a.faction === "neutral" ? b.faction : a.faction;
+  return f === "neutral" ? "either faction" : f === "alliance" ? "Alliance" : "Horde";
+}
+
 export function routeNote(a, b) {
-  if (a.faction === b.faction) return "same house faction";
-  if (a.faction === "neutral" || b.faction === "neutral") return "one character can do it";
-  return "cross-faction: relay through Blackwater";
+  return `one ${tradeFaction(a, b)} character: ${a.faction === "neutral" ? "Blackwater" : "faction house"} to ${b.faction === "neutral" ? "Blackwater" : "faction house"}`;
+}
+
+/** AH cut when selling in this house (Blackwater can be set separately). */
+export function cutFor(house, fees) {
+  return house?.faction === "neutral" ? fees.neutralCutRate ?? fees.cutRate ?? 0.05 : fees.cutRate ?? 0.05;
 }

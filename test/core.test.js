@@ -119,3 +119,30 @@ test("clearSales keeps prices and drops sales", () => {
   assert.deepEqual([e.d[0][4], e.d[0][5], e.d[0][6]], [0, 0, 0]);
   assert.deepEqual(hist.track, {});
 });
+
+test("arbitrage only between a faction house and Blackwater, never Alliance <-> Horde", () => {
+  const hist = () => {
+    const h = emptyHistory();
+    const H0 = Date.UTC(2026, 10, 1);
+    for (let i = 0; i < 5 * 24; i++) {
+      const t = H0 + i * 3_600_000;
+      recordSnapshot(h, t, new Map([["5", { mv: 1000, min: 1000, qty: 200, n: 10 }]]), 96);
+      recordSales(h, t, new Map([["5", { qty: 1, n: 1, value: 1000 }]]), new Map());
+      recordTracking(h, t, 1);
+    }
+    return h;
+  };
+  const now = Date.UTC(2026, 10, 1) + 5 * 24 * 3_600_000;
+  const cheap = new Map([["5", [[300, 50]]]]);
+  const dear = new Map([["5", [[1000, 50]]]]);
+  const settings = { flipThreshold: 0.1, horizonDays: 3, minProfitCopper: 1, minRoi: 0.1, arbMinProfitCopper: 1, minSoldPerDay: 0.5, maxOppsPerRegion: 50, baselineDays: 14, velocityDays: 7 };
+  const fees = { cutRate: 0.05, depositMinCopper: 1, depositVendorRate: 0 };
+  const run = (sellerFaction) => findOpportunities("us", [
+    { house: { id: 111, group: 2, faction: "alliance" }, ladders: cheap, hist: hist() },
+    { house: { id: 114, group: 2, faction: sellerFaction }, ladders: dear, hist: hist() },
+  ], {}, settings, fees, now).filter((o) => o.type === "arbitrage");
+  assert.equal(run("horde").length, 0, "Alliance -> Horde is impossible");
+  const viaBlackwater = run("neutral");
+  assert.equal(viaBlackwater.length, 1, "Alliance -> Blackwater is a real trade");
+  assert.match(viaBlackwater[0].note, /Alliance character/);
+});

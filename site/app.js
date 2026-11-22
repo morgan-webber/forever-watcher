@@ -67,6 +67,7 @@ const S = {
   region: store.get("region", "us"),
   group: store.get("group", "all"),
   watch: store.get("watch", []),
+  faction: store.get("faction", "both"),
 };
 const houses = () => S.meta?.regions?.[S.region]?.houses ?? [];
 const house = (id) => houses().find((h) => h.id === Number(id));
@@ -82,6 +83,16 @@ const freshness = (h) => {
   return `<span class="${mins > 150 ? "neg" : mins > 90 ? "warn" : ""}" title="Blizzard's snapshot time${h.checked ? `; last checked ${ago(h.checked)}` : ""}">${ago(t)}</span>`;
 };
 const inGroup = (id) => S.group === "all" || house(id)?.group === Number(S.group);
+/** Houses the chosen faction can use: its own house and Blackwater (goods can't cross Alliance <-> Horde). */
+const usable = (id) => {
+  const h = house(id);
+  return !!h && inGroup(id) && (S.faction === "both" || h.faction === "neutral" || h.faction === S.faction);
+};
+/** Can goods move between these houses? Only a faction house <-> Blackwater, same group. */
+const canTrade = (a, b) => {
+  const x = house(a), y = house(b);
+  return !!x && !!y && x.group === y.group && (a === b || x.faction === "neutral" || y.faction === "neutral");
+};
 
 async function index() {
   const rows = await load(`index-${S.region}.json`);
@@ -132,7 +143,7 @@ function table(cols, rows, { sortKey, desc = true, onRow, empty = "Nothing here 
 // ---------- views ----------
 const TYPE_INFO = {
   flip: "Underpriced listings bought and relisted in the same house.",
-  arbitrage: "Bought in one house, relisted in another house of the same ruleset group.",
+  arbitrage: "Bought in your faction's house and relisted on Blackwater, or the other way round. One character can do it; goods can't move between the Alliance and Horde houses.",
   vendor: "Listed below the vendor sell price: buy and sell to any merchant.",
   craft: "Buy the reagents, craft, and sell the product. Needs the recipe.",
   disenchant: "Buy gear priced under the value of what it disenchants into (Classic odds, unverified). Needs Enchanting.",
@@ -157,7 +168,7 @@ async function viewOpps(el) {
     const b = bt[t];
     return `<div class="card"><div class="k">${t} backtest hit rate</div><div class="v">${b?.evaluated ? pct(b.hitRate) : "–"}</div><div class="note">${b?.evaluated ? `${b.evaluated} trades checked, ${pct(b.realisedRoi)} realised ROI` : "builds up after 3 days of data"}</div></div>`;
   };
-  const visible = opps.filter((o) => inGroup(o.buy) && (o.sell == null || inGroup(o.sell)));
+  const visible = opps.filter((o) => usable(o.buy) && (o.sell == null || usable(o.sell)));
   el.innerHTML = `
     <h1 class="gilded">Opportunities</h1>
     <p class="lead">Trades ranked by expected profit after the AH cut and deposits, with quantity capped at what the market has been absorbing (estimated sales per day × ${S.meta.settings.horizonDays} days). The grade reflects how much history and sales data backs the estimate.</p>
@@ -276,7 +287,7 @@ async function viewItem(el, region, base, variantKey) {
 
   const sel = $("#c-house", el);
   $("#item-houses", el).replaceChildren(table([
-    { key: "house", label: "House", html: (x) => houseLabel(x.hid), sort: (x) => x.hid },
+    { key: "house", label: "House", html: (x) => `${houseLabel(x.hid)}${usable(x.hid) ? "" : '<div class="sub">not your faction</div>'}`, sort: (x) => x.hid },
     { key: "min", label: "Lowest", num: true, html: (x) => (x.m?.listed ? money(x.last[2]) : '<span class="muted">not listed</span>'), sort: (x) => (x.m?.listed ? x.last[2] : null) },
     { key: "mv", label: "Value", num: true, html: (x) => (x.m?.listed ? money(x.last[1]) : "–"), sort: (x) => (x.m?.listed ? x.last[1] : null) },
     { key: "qty", label: "Listed", num: true, html: (x) => (x.m?.listed ? x.last[3].toLocaleString() : "0"), sort: (x) => (x.m?.listed ? x.last[3] : 0) },
@@ -286,7 +297,8 @@ async function viewItem(el, region, base, variantKey) {
   ], rows, { sortKey: "spd", onRow: (x) => { sel.value = x.hid; draw(); } }));
 
   sel.innerHTML = `${rows.length > 1 ? '<option value="all">All houses, side by side</option>' : ""}${rows.map((x) => `<option value="${x.hid}">${esc(factionName(house(x.hid)))} · ${esc(house(x.hid).groupName)}</option>`).join("")}`;
-  sel.value = store.get("itemHouse", "all") === "all" && rows.length > 1 ? "all" : String(main?.hid ?? rows[0]?.hid);
+  const defHouse = main && usable(main.hid) ? main : rows.find((x) => usable(x.hid)) ?? main;
+  sel.value = store.get("itemHouse", "all") === "all" && rows.length > 1 ? "all" : String(defHouse?.hid ?? rows[0]?.hid);
   let range = store.get("range", "h");
   const qtyBox = $("#c-qty", el), maBox = $("#c-ma", el);
   qtyBox.checked = store.get("showVolume", true);
@@ -411,15 +423,28 @@ async function viewItem(el, region, base, variantKey) {
 // ---------- market (latest snapshot, every item) ----------
 async function loadMarket() {
   const [m, idx] = await Promise.all([load(`market-${S.region}.json`), index()]);
-  const hids = m.houses;
-  return { hids, idx, rows: m.rows.map((r) => {
+  const all = m.houses;
+  const keep = all.map((h, i) => [h, i]).filter(([h]) => usable(h));
+  const hids = keep.map(([h]) => h);
+  const rows = [];
+  for (const r of m.rows) {
+    const per = keep.map(([, i]) => r[1][i]);
+    if (!per.some(Boolean)) continue;
     const info = idx.get(baseOf(r[0])) ?? { name: `Item ${baseOf(r[0])}`, q: "COMMON" };
-    const per = r[1];
     const mins = per.filter(Boolean).map((p) => p[0]);
-    const lo = Math.min(...mins), hi = Math.max(...mins);
-    return { key: r[0], info, per, base: r[2], chg24: r[3], chg7: r[4], spd: r[5], st: r[6], cv: r[7], gold: r[8], supply: r[9], spark: r[10],
-      main: r[11] ?? 0, mainLo: per[r[11] ?? 0]?.[0] ?? null, lo, qty: per.reduce((s, p) => s + (p?.[2] ?? 0), 0), spread: mins.length > 1 && lo > 0 ? hi / lo - 1 : null, mv: Math.max(...per.filter(Boolean).map((p) => p[1])) };
-  }) };
+    // Tradeable gap: the biggest price difference between two houses goods can actually move
+    // between (a faction house and Blackwater), buying low in one and selling in the other.
+    let gap = null;
+    for (let a = 0; a < hids.length; a++) for (let b = 0; b < hids.length; b++) {
+      if (a === b || !per[a] || !per[b] || !canTrade(hids[a], hids[b])) continue;
+      const g = per[b][0] / per[a][0] - 1;
+      if (g > 0 && (!gap || g > gap.g)) gap = { g, buy: hids[a], sell: hids[b] };
+    }
+    rows.push({ key: r[0], info, per, base: r[2], chg24: r[3], chg7: r[4], spd: r[5], st: r[6], cv: r[7], gold: r[8], supply: r[9], spark: r[10],
+      main: r[11] ?? 0, mainLo: r[1][r[11] ?? 0]?.[0] ?? null, lo: Math.min(...mins), qty: per.reduce((s, p) => s + (p?.[2] ?? 0), 0),
+      spread: gap?.g ?? null, gap, mv: Math.max(...per.filter(Boolean).map((p) => p[1])) });
+  }
+  return { hids, idx, rows };
 }
 
 async function viewMarket(el) {
@@ -437,7 +462,7 @@ async function viewMarket(el) {
       <label>Min sold/day<input id="m-minSpd" type="number" min="0" step="0.5"></label>
       <label>Min price (g)<input id="m-minPrice" type="number" min="0" step="0.1"></label>
       <label>Max price (g)<input id="m-maxPrice" type="number" min="0" step="1"></label>
-      <label>House gap ≥ %<input id="m-minSpread" type="number" min="0" step="5" title="Difference between the cheapest and dearest house's lowest listing"></label>
+      <label>Tradeable gap ≥ %<input id="m-minSpread" type="number" min="0" step="5" title="Price gap between a faction house and Blackwater"></label>
     </div>
     <div id="m-table"></div>`;
   for (const [k, v] of Object.entries(f)) { const i = $(`#m-${k}`, el); if (i) i.value = v; }
@@ -461,7 +486,7 @@ async function viewMarket(el) {
       { key: "name", label: "Item", html: (r) => itemCell(r.info.name, r.info.q, r.info.icon, bonusOf(r.key) ? `variant ${bonusOf(r.key)}` : esc(r.info.cls ?? "")), sort: (r) => r.info.name },
       ...hids.map(hcol),
       { key: "qty", label: "Listed", num: true, title: "Units listed across all houses", html: (r) => r.qty.toLocaleString(), sort: (r) => r.qty },
-      { key: "spread", label: "Gap", num: true, title: "How much dearer the dearest house's lowest listing is than the cheapest house's", html: (r) => (r.spread == null ? "–" : pct(r.spread)), sort: (r) => r.spread },
+      { key: "spread", label: "Gap", num: true, title: "Biggest price gap you can trade across: buy in one house, sell in the other (a faction house and Blackwater only; goods can't move between Alliance and Horde)", html: (r) => (r.gap ? `${pct(r.gap.g)}<div class="sub">${esc(factionName(house(r.gap.buy)))} → ${esc(factionName(house(r.gap.sell)))}</div>` : "–"), sort: (r) => r.spread },
       { key: "spd", label: "Sold/day", num: true, html: (r) => fixed(r.spd), sort: (r) => r.spd },
       { key: "gold", label: "Traded/day", num: true, title: "Estimated gold changing hands per day", html: (r) => money(r.gold), sort: (r) => r.gold },
       { key: "chg24", label: "24h", num: true, html: (r) => signed(r.chg24), sort: (r) => r.chg24 },
@@ -537,14 +562,15 @@ async function viewCrafting(el) {
   const R = await loadRecipes();
   if (!R) { el.innerHTML = '<h1 class="illumined">Crafting</h1><p class="empty">Recipe data arrives with the next collection run.</p>'; return; }
   const f = store.get("craftFilters", { prof: "", house: String(R.houses[0]), q: "", minSpd: "", onlyProfit: "1" });
-  if (!R.houses.map(String).includes(f.house)) f.house = String(R.houses[0]);
+  const craftHouses = R.houses.filter((h) => usable(h));
+  if (!craftHouses.map(String).includes(f.house)) f.house = String(craftHouses[0] ?? R.houses[0]);
   const profs = Object.entries(R.professions).filter(([id]) => R.rows.some((r) => String(r[2]) === id && r[4])).sort((a, b) => a[1].name.localeCompare(b[1].name));
   el.innerHTML = `
     <h1 class="illumined">Crafting</h1>
     <p class="lead">Every recipe from Blizzard's API, priced at today's market: reagents at market value (or the vendor price for trade supplies), the product at its market value after the ${pct(S.meta.fees.cutRate, 0)} AH cut. Profit is per craft. For trades sized to what actually sells, see crafting on the Opportunities page.</p>
     <div class="filters">
       <label>Profession<select id="cf-prof"><option value="">All</option>${profs.map(([id, p]) => `<option value="${id}">${esc(p.name)}</option>`).join("")}</select></label>
-      <label>House<select id="cf-house">${R.houses.map((h) => `<option value="${h}">${esc(factionName(house(h) ?? { faction: "unknown" }))}</option>`).join("")}</select></label>
+      <label>House<select id="cf-house">${craftHouses.map((h) => `<option value="${h}">${esc(factionName(house(h) ?? { faction: "unknown" }))}</option>`).join("")}</select></label>
       <label>Recipe or item<input id="cf-q" type="search" placeholder="filter by name"></label>
       <label>Min sold/day<input id="cf-minSpd" type="number" min="0" step="0.5"></label>
       <label>Show<select id="cf-onlyProfit"><option value="1">Profitable only</option><option value="">Everything priced</option><option value="all">All recipes</option></select></label>
@@ -662,7 +688,7 @@ async function viewSpec(el) {
     store.set("specFilters", f);
     const q = f.q.trim().toLowerCase();
     const list = (rows ?? []).map((s) => ({ ...s, info: idx.get(baseOf(s.key)) ?? { name: `Item ${s.key}`, q: "COMMON" } })).filter((s) =>
-      s.score >= Number(f.minScore || 0) && rank[s.confidence] >= rank[f.conf] && (!f.minSpd || (s.soldR ?? 0) >= Number(f.minSpd)) && (!q || s.info.name.toLowerCase().includes(q)));
+      usable(s.house) && s.score >= Number(f.minScore || 0) && rank[s.confidence] >= rank[f.conf] && (!f.minSpd || (s.soldR ?? 0) >= Number(f.minSpd)) && (!q || s.info.name.toLowerCase().includes(q)));
     $("#sp-table", el).replaceChildren(table([
       { key: "name", label: "Item", html: (s) => itemCell(s.info.name, s.info.q, s.info.icon, houseLabel(s.house)), sort: (s) => s.info.name },
       { key: "score", label: "Signal", html: (s) => `${scoreBar(s)} ${confPill(s.confidence)}`, sort: (s) => s.score },
@@ -734,7 +760,7 @@ async function viewWatch(el) {
     try {
       const f = await load(`items/${w.region}/${baseOf(w.key)}.json`);
       for (const [hid, v] of Object.entries(f.variants[w.key] ?? {})) {
-        if (!v.m?.listed || !inGroup(hid)) continue;
+        if (!v.m?.listed || !usable(Number(hid))) continue;
         const last = v.h.at(-1);
         if (!best || last[2] < best.min) best = { hid: Number(hid), min: last[2], mv: last[1], base: v.m.baseline, spd: v.m.soldPerDay };
       }
@@ -823,6 +849,10 @@ function scopeName() {
   const gs = [...new Map(houses().map((h) => [h.group, h.groupName])).entries()];
   if (gs.length === 1) return gs[0][1];
   return S.group === "all" ? "all tracked groups" : gs.find(([g]) => String(g) === String(S.group))?.[1] ?? "";
+}
+function fillFaction() {
+  $("#faction").innerHTML = '<option value="both">Both factions</option><option value="alliance">Alliance</option><option value="horde">Horde</option>';
+  $("#faction").value = S.faction;
 }
 function fillGroups() {
   const gs = [...new Map(houses().map((h) => [h.group, h.groupName])).entries()];
@@ -917,6 +947,8 @@ async function main() {
   fillGroups();
   $("#region").addEventListener("change", (e) => { setRegion(e.target.value); route(); });
   $("#group").addEventListener("change", (e) => { S.group = e.target.value; store.set("group", S.group); route(); });
+  fillFaction();
+  $("#faction").addEventListener("change", (e) => { S.faction = e.target.value; store.set("faction", S.faction); route(); });
   if (S.meta.demo) {
     const b = $("#banner");
     b.hidden = false;

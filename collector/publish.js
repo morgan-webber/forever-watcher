@@ -16,6 +16,7 @@ import { metrics, H, D, toHour, toDay } from "./history.js";
 import { baseId } from "./summarise.js";
 import { recipeTable, nameIndex } from "./crafting.js";
 import { deValue, DE_SOURCE } from "./disenchant.js";
+import { cutFor } from "./houses.js";
 
 const r3 = (x) => (x == null ? null : Math.round(x * 1000) / 1000);
 
@@ -108,7 +109,6 @@ export async function publish({ outDir, regions, items, settings, fees, backtest
     })));
 
     // Disenchant breakdown per house for disenchantable items (Classic odds).
-    const cut = fees.cutRate ?? 0.05;
     const deFor = (b) => {
       const m = items[b];
       if (!m?.lvl || !R.houseData) return null;
@@ -119,7 +119,7 @@ export async function publish({ outDir, regions, items, settings, fees, backtest
           const id = byName.get(name.toLowerCase());
           return id ? hd.stats.get(String(id))?.mv ?? null : null;
         };
-        const v = deValue(m, priceOf, cut);
+        const v = deValue(m, priceOf, cutFor(hd.house, fees));
         if (!v) return null;
         outs = v.parts.map((p) => [byName.get(p.name.toLowerCase()) ?? null, p.name, p.p, p.lo, p.hi]);
         houses[hd.house.id] = [v.ev, v.parts.map((p) => p.unit), r3(v.unpricedShare)];

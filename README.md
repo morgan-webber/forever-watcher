@@ -52,6 +52,8 @@ House groups: each region lists 5 Alliance, 5 Horde and 5 Blackwater houses. The
 | 4 | 119 / 120 / 121 | small: likely one of the Roleplay rulesets |
 | 5 | 123 / 124 / 125 | small: likely the other Roleplay ruleset |
 
+**Factions:** the Alliance and Horde houses are separate markets: goods can't move between them. Blackwater is open to both. So cross-house trades (arbitrage, the Market "Gap" column) are only ever a faction house and Blackwater, done by one character. The faction selector in the header limits every page to the houses that faction can use. Blackwater's cut can be set separately (`config/fees.json → neutralCutRate`).
+
 Only group 2 is scanned by default (`settings.json → focusGroups`). To confirm in game, compare the lowest buyout of a common item on your Normal character with houses 111/114 versus 110/113.
 
 ## Local development

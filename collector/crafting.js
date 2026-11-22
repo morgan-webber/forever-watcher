@@ -18,6 +18,7 @@ import { metrics } from "./history.js";
 import { baseId } from "./summarise.js";
 import { take, depositFor, grade, gradeRank } from "./opportunities.js";
 import { deValue, DE_MATERIALS } from "./disenchant.js";
+import { cutFor } from "./houses.js";
 
 export function resolveVendorIds(items, names = []) {
   const want = new Set(names.map((n) => n.toLowerCase()));
@@ -49,9 +50,9 @@ function capGrade(g, cap) {
 
 export function findCrafts(region, houses, items, catalog, settings, fees, nowMs, vendorIds) {
   if (!catalog?.recipes?.length) return [];
-  const cut = fees.cutRate ?? 0.05;
   const out = [];
   for (const h of houses) {
+    const cut = cutFor(h.house, fees);
     for (const [rid, rname, prof, cat, craftedId, qMin, qMax, reagents] of catalog.recipes) {
       if (!craftedId || !reagents.length) continue;
       const key = String(craftedId);
@@ -98,10 +99,10 @@ export function findCrafts(region, houses, items, catalog, settings, fees, nowMs
 }
 
 export function findDisenchants(region, houses, items, settings, fees, nowMs) {
-  const cut = fees.cutRate ?? 0.05;
   const byName = nameIndex(items);
   const out = [];
   for (const h of houses) {
+    const cut = cutFor(h.house, fees);
     const matCache = new Map();
     const mat = (name) => {
       if (matCache.has(name)) return matCache.get(name);
@@ -150,7 +151,6 @@ export function findDisenchants(region, houses, items, settings, fees, nowMs) {
  */
 export function recipeTable(houses, items, catalog, settings, fees, nowMs, vendorIds) {
   if (!catalog?.recipes?.length) return [];
-  const cut = fees.cutRate ?? 0.05;
   const r3 = (x) => (x == null ? null : Math.round(x * 1000) / 1000);
   return catalog.recipes.map(([rid, name, prof, cat, craftedId, qMin, qMax, reagents]) => {
     const per = houses.map((h) => {
@@ -165,7 +165,7 @@ export function recipeTable(houses, items, catalog, settings, fees, nowMs, vendo
       const value = craftedId ? unitValue(h, craftedId) : null;
       const m = craftedId ? metrics(h.hist, String(craftedId), nowMs, settings) : null;
       const qty = (qMin + qMax) / 2;
-      const profit = cost != null && value != null ? Math.round(qty * value * (1 - cut) - cost) : null;
+      const profit = cost != null && value != null ? Math.round(qty * value * (1 - cutFor(h.house, fees)) - cost) : null;
       return [cost == null ? null : Math.round(cost), value, profit, r3(m?.soldPerDay)];
     });
     return [rid, name, prof, cat, craftedId, (qMin + qMax) / 2, reagents.map(([id, n]) => [id, n, vendorIds.has(id) ? 1 : 0]), per];

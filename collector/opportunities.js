@@ -5,7 +5,8 @@
  *  - flip:      listings priced at or below flipThreshold x the item's baseline market value,
  *               bought and relisted in the same house.
  *  - vendor:    listings priced below the item's vendor sell price (instant, no AH cut).
- *  - arbitrage: buy in one house, relist in another house of the same group (ruleset).
+ *  - arbitrage: buy in one house, relist in another of the same group (ruleset). Only faction
+ *               house <-> Blackwater: goods can't move between the Alliance and Horde houses.
  *
  * Expected value per trade (copper):
  *   EV = units * P_sell * (1 - cut) - cost - (1/p - 1) * deposit
@@ -16,7 +17,7 @@
  */
 import { metrics } from "./history.js";
 import { baseId } from "./summarise.js";
-import { routeNote } from "./houses.js";
+import { routeNote, canTrade, cutFor } from "./houses.js";
 
 const GRADES = ["D", "C", "B", "A"];
 
@@ -66,7 +67,6 @@ export function ev({ units, cost, sellAt, p, deposit, cut }) {
  * items: metadata db keyed by item id
  */
 export function findOpportunities(region, houses, items, settings, fees, nowMs) {
-  const cut = fees.cutRate ?? 0.05;
   const s = settings;
   const out = [];
   const mcache = new Map();
@@ -103,7 +103,7 @@ export function findOpportunities(region, houses, items, settings, fees, nowMs) 
       if (!t.units) continue;
       const sellAt = Math.max(1, Math.min(m.baseline, (t.floor ?? m.baseline) - 1));
       const deposit = depositFor(meta?.src === "forever" || meta?.src === "client" ? vendor : 0, t.units, fees);
-      const value = ev({ units: t.units, cost: t.cost, sellAt, p: m.sellThrough, deposit, cut });
+      const value = ev({ units: t.units, cost: t.cost, sellAt, p: m.sellThrough, deposit, cut: cutFor(h.house, fees) });
       if (value < s.minProfitCopper || value / t.cost < s.minRoi) continue;
       out.push({
         type: "flip", region, key, buy: h.house.id, sell: h.house.id, units: t.units, buyMax: t.top, sellAt,
@@ -114,7 +114,7 @@ export function findOpportunities(region, houses, items, settings, fees, nowMs) 
     }
   }
 
-  // Cross-house arbitrage within a group.
+  // Cross-house arbitrage within a group: faction house <-> Blackwater only.
   const groups = new Map();
   for (const h of houses) {
     if (!groups.has(h.house.group)) groups.set(h.house.group, []);
@@ -127,11 +127,12 @@ export function findOpportunities(region, houses, items, settings, fees, nowMs) 
         const mB = M(B, key);
         if (!mB?.baseline || mB.soldPerDay == null || mB.soldPerDay < s.minSoldPerDay) continue;
         const sellAt = Math.max(1, Math.min(mB.baseline, ladderB[0][0] - 1));
+        const cut = cutFor(B.house, fees);
         const maxBuy = Math.floor((sellAt * (1 - cut)) / (1 + s.minRoi));
         const maxUnits = Math.max(1, Math.floor(mB.soldPerDay * s.horizonDays));
         let best = null;
         for (const A of members) {
-          if (A === B) continue;
+          if (A === B || !canTrade(A.house, B.house)) continue;
           const ladderA = A.ladders.get(key);
           if (!ladderA || ladderA[0][0] > maxBuy) continue;
           const t = take(ladderA, maxBuy, maxUnits);

@@ -4,7 +4,7 @@
  */
 import path from "node:path";
 import { readJson, writeJson } from "./store.js";
-import { groupHouses, parseHouseIndex } from "./houses.js";
+import { groupHouses, parseHouseIndex, canTrade } from "./houses.js";
 import { summarise, ladderize, statsOf, baseId } from "./summarise.js";
 import { diffLifecycle } from "./lifecycle.js";
 import { emptyHistory, recordSnapshot, recordSales, recordTracking, prune, clearSales } from "./history.js";
@@ -219,7 +219,15 @@ export async function collect({ client, config, stateDir, outDir, nowMs = Date.n
     log(`Blizzard's newest snapshot: ${newest.toISOString()}; next run wakes at :${String((newest.getUTCMinutes() + 6) % 60).padStart(2, "0")}`);
   }
 
-  // 5. Backtest.
+  // 5. Backtest. Drop any logged arbitrage between the Alliance and Horde houses (not a real trade;
+  // logged before that route was excluded).
+  for (let i = btLog.length - 1; i >= 0; i--) {
+    const e = btLog[i];
+    if (e.type !== "arbitrage") continue;
+    const hb = meta.houses[e.region]?.find((h) => h.id === e.buy);
+    const hs = meta.houses[e.region]?.find((h) => h.id === e.sell);
+    if (hb && hs && !canTrade(hb, hs)) btLog.splice(i, 1);
+  }
   logOpportunities(btLog, allOpps, nowMs);
   evaluate(btLog, (region, hid) => regions[region]?.hists.get(hid), nowMs, settings);
   const backtest = summariseBacktest(btLog);

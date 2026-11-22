@@ -3,5 +3,6 @@
   "depositMinCopper": 100,
   "depositVendorRate": 0.15,
   "verified": false,
-  "note": "Blizzard has not published WoW: Forever's AH commission or deposit formula. These are classic-era assumptions: 5% cut on sale, deposit = 15% of vendor sell price per listing with a 1 silver minimum (a cut to 1 copper was announced but delayed). Sell one item in game, read the sale mail, and correct these numbers."
+  "note": "Blizzard has not published WoW: Forever's AH commission or deposit formula. These are assumptions: 5% cut on sale (cutRate for the Alliance and Horde houses, neutralCutRate for Blackwater; in Classic the neutral auction house took 15%), deposit = 15% of vendor sell price per listing with a 1 silver minimum. Sell one item in each house, read the sale mail, and correct these numbers.",
+  "neutralCutRate": 0.05
 }
