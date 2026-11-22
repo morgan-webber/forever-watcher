@@ -2,13 +2,14 @@
  * Per-house price history.
  *
  * hist = {
- *   items: { [key]: { h: [[hour, mv, min, qty, n, sold?]], d: [[day, mv, min, qty, sold, expired, soldValue]] } },
+ *   items: { [key]: { h: [[hour, mv, min, qty, n, sold?, posted?]], d: [[day, mv, min, qty, sold, expired, soldValue, posted]] } },
+ *   sold / posted are estimated units (sales; genuinely new listings, reposts excluded).
  *   track: { [day]: hoursOfLifecycleTracking },
  * }
  * hour = epoch hours, day = epoch days (UTC). Prices are copper per unit.
  */
-export const H = { HOUR: 0, MV: 1, MIN: 2, QTY: 3, N: 4, SOLD: 5 };
-export const D = { DAY: 0, MV: 1, MIN: 2, QTY: 3, SOLD: 4, EXP: 5, SOLDV: 6 };
+export const H = { HOUR: 0, MV: 1, MIN: 2, QTY: 3, N: 4, SOLD: 5, POST: 6 };
+export const D = { DAY: 0, MV: 1, MIN: 2, QTY: 3, SOLD: 4, EXP: 5, SOLDV: 6, POST: 7 };
 
 export const toHour = (ms) => Math.floor(ms / 3_600_000);
 export const toDay = (ms) => Math.floor(ms / 86_400_000);
@@ -20,7 +21,7 @@ export function emptyHistory() {
 function dailyRow(entry, day) {
   let row = entry.d.at(-1);
   if (!row || row[D.DAY] !== day) {
-    row = [day, null, null, null, 0, 0, 0];
+    row = [day, null, null, null, 0, 0, 0, 0];
     entry.d.push(row);
   }
   return row;
@@ -32,9 +33,9 @@ export function recordSnapshot(hist, nowMs, stats, keepHours) {
   const minHour = hour - keepHours;
   for (const [key, s] of stats) {
     const e = (hist.items[key] ??= { h: [], d: [] });
-    // A second scan in the same hour replaces the point but keeps the hour's sales count.
+    // A second scan in the same hour replaces the point but keeps the hour's sold/posted counts.
     const prev = e.h.at(-1)?.[H.HOUR] === hour ? e.h.pop() : null;
-    e.h.push(prev?.[H.SOLD] ? [hour, s.mv, s.min, s.qty, s.n, prev[H.SOLD]] : [hour, s.mv, s.min, s.qty, s.n]);
+    e.h.push([hour, s.mv, s.min, s.qty, s.n, ...(prev ? prev.slice(H.SOLD) : [])]);
   }
   for (const e of Object.values(hist.items)) {
     while (e.h.length && e.h[0][H.HOUR] <= minHour) e.h.shift();
@@ -48,7 +49,7 @@ export function recordSnapshot(hist, nowMs, stats, keepHours) {
   }
 }
 
-export function recordSales(hist, nowMs, sold, expired) {
+export function recordSales(hist, nowMs, sold, expired, posted = new Map()) {
   const day = toDay(nowMs);
   const hour = toHour(nowMs);
   for (const [key, s] of sold) {
@@ -64,6 +65,16 @@ export function recordSales(hist, nowMs, sold, expired) {
     const e = (hist.items[key] ??= { h: [], d: [] });
     dailyRow(e, day)[D.EXP] += x.qty;
   }
+  for (const [key, units] of posted) {
+    const e = (hist.items[key] ??= { h: [], d: [] });
+    const row = dailyRow(e, day);
+    row[D.POST] = (row[D.POST] ?? 0) + units;
+    const p = e.h.at(-1);
+    if (p && p[H.HOUR] === hour) {
+      p[H.SOLD] = p[H.SOLD] ?? 0;
+      p[H.POST] = (p[H.POST] ?? 0) + units;
+    }
+  }
 }
 
 /** Drops all recorded sales and tracking hours, keeping prices. */
@@ -71,7 +82,7 @@ export function clearSales(hist) {
   hist.track = {};
   for (const e of Object.values(hist.items)) {
     for (const p of e.h) p.length = Math.min(p.length, 5);
-    for (const r of e.d) { r[D.SOLD] = 0; r[D.EXP] = 0; r[D.SOLDV] = 0; }
+    for (const r of e.d) { r[D.SOLD] = 0; r[D.EXP] = 0; r[D.SOLDV] = 0; r[D.POST] = 0; }
   }
 }
 

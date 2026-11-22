@@ -8,6 +8,7 @@
  *   market-<region>.json               every listed item: current prices per house, trends, sparkline
  *   pulse-<region>.json                market-wide activity per house over time
  *   recipes-<region>.json              every recipe priced per house (reagent cost, product value, profit)
+ *   spec-<region>.json                 speculation watch: items that look hoarded or squeezed
  */
 import { promises as fs } from "node:fs";
 import path from "node:path";
@@ -96,6 +97,15 @@ export async function publish({ outDir, regions, items, settings, fees, backtest
       const names = Object.fromEntries([...ids].map((id) => [id, [items[id]?.n ?? null, items[id]?.q ?? null, items[id]?.icon ?? null, (R.vendorIds?.has(id) ? items[id]?.buy : null) ?? null]]));
       await write(path.join(dataDir, `recipes-${region}.json`), { houses: R.houses.map((h) => h.id), professions: catalog.professions, names, rows });
     }
+
+    // Speculation watch.
+    const r2 = (x) => (x == null ? null : Math.round(x * 100) / 100);
+    await write(path.join(dataDir, `spec-${region}.json`), (R.spec ?? []).slice(0, 300).map((s) => ({
+      key: s.key, house: s.house, score: s.score, confidence: s.confidence, mode: s.mode,
+      qtyNow: s.qtyNow, qtyBase: s.qtyBase, supplyChange: r3(s.supplyChange), soldR: r2(s.soldR), soldB: r2(s.soldB), demandRatio: r3(s.demandRatio),
+      mvNow: s.mvNow, mvBase: s.mvBase, priceChange: r3(s.priceChange), postR: r2(s.postR), absorption: r3(s.absorption), daysOfSupply: r2(s.daysOfSupply),
+      buyouts: s.buyouts, sparkQty: s.sparkQty, sparkMv: s.sparkMv,
+    })));
 
     // Disenchant breakdown per house for disenchantable items (Classic odds).
     const cut = fees.cutRate ?? 0.05;

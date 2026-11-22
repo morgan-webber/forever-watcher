@@ -235,7 +235,8 @@ async function viewItem(el, region, base, variantKey) {
     for (let i = d.length - 1; i >= 0; i--) if (d[i][0] <= today - 7 && d[i][1]) return cur[1] / d[i][1] - 1;
     return null;
   })();
-  const spd = listedRows.reduce((s, x) => s + (x.m?.soldPerDay ?? 0), 0);
+  const spd = rows.reduce((s, x) => s + (x.m?.soldPerDay ?? 0), 0);
+  const lastSeen = rows.map((x) => x.last).filter(Boolean).sort((a, b) => b[0] - a[0])[0];
   const anySpd = rows.some((x) => x.m?.soldPerDay != null);
   const watched = S.watch.find((w) => w.region === region && w.key === vkey);
   const stat = (k, v, n = "") => `<div class="card stat"><div class="k">${k}</div><div class="v">${v}</div>${n ? `<div class="note">${n}</div>` : ""}</div>`;
@@ -250,10 +251,10 @@ async function viewItem(el, region, base, variantKey) {
     ${vkeys.length > 1 ? `<div class="variant-bar"><label class="note" for="v-sel">Variant (random suffixes are priced separately)</label><select id="v-sel">${vkeys.map((k) => `<option value="${esc(k)}" ${k === vkey ? "selected" : ""}>${k === base ? "Plain" : `Bonus ${esc(bonusOf(k))}`} · ${listedCount(k).toLocaleString()} listed</option>`).join("")}</select></div>` : ""}
     <div class="cards stats">
       ${stat("Lowest now", cheapest ? money(cheapest.last[2]) : "not listed", cheapest ? factionName(house(cheapest.hid)) : "")}
-      ${stat("Market value", main?.m?.listed ? money(main.last[1]) : "–", main ? `${factionName(house(main.hid))}, busiest house` : "")}
+      ${stat("Market value", main?.m?.listed ? money(main.last[1]) : lastSeen ? money(lastSeen[1]) : "–", main?.m?.listed ? `${factionName(house(main.hid))}, busiest house` : lastSeen ? `last seen ${ago(lastSeen[0] * 3600000)} · sold out now` : "")}
       ${stat("Baseline", money(main?.m?.baseline), `${S.meta.settings.baselineDays}-day average`)}
       ${stat("Change", `${signed(main?.m?.chg24)} <span class="note">24h</span>`, `${ch7 == null ? "–" : signed(ch7)} over 7 days`)}
-      ${stat("Sold a day", anySpd ? fixed(spd) : "–", anySpd && main?.m?.listed ? `≈ ${money(spd * main.last[1], { plain: true })} traded daily` : "needs a few hours of scans")}
+      ${stat("Sold a day", anySpd ? fixed(spd) : "–", anySpd && (main?.last ?? lastSeen) ? `≈ ${money(spd * (main?.m?.listed ? main.last[1] : lastSeen[1]), { plain: true })} traded daily` : "needs a few hours of scans")}
       ${stat("Volatility", main?.m?.cv == null ? "–" : pct(main.m.cv), "day-to-day swing in value")}
     </div>
     <div class="chartbox">
@@ -582,9 +583,16 @@ async function viewCrafting(el) {
 
 /** Crafting + disenchanting sections for the item page. */
 async function itemExtras(el, base, file, houseIds) {
-  const R = await loadRecipes();
+  const [R, spec] = await Promise.all([loadRecipes(), loadSpec()]);
   const out = [];
   const id = Number(base);
+  const sig = (spec ?? []).filter((s) => baseOf(s.key) === String(base)).sort((a, b) => b.score - a.score)[0];
+  if (sig) {
+    el.querySelector(".itemhead")?.insertAdjacentHTML("afterend", `<a class="frame specflag" href="#/spec">
+      <div>${scoreBar(sig)}</div>
+      <div><b>Speculation signal</b> ${confPill(sig.confidence)} <span class="note">in ${esc(factionName(house(sig.house) ?? { faction: "unknown" }))}</span><br>
+      <span class="note">Listed ${sig.qtyNow.toLocaleString()} vs usual ${sig.qtyBase.toLocaleString()} (${pctSigned(sig.supplyChange)}), value ${pctSigned(sig.priceChange)}, ${fixed(sig.soldR)} sold/day${sig.absorption != null ? `, buyers taking ${sig.absorption.toFixed(1)}× new supply` : ""}${sig.buyouts ? `, ${sig.buyouts} big buyout hour${sig.buyouts > 1 ? "s" : ""}` : ""}.</span></div></a>`);
+  }
   if (R) {
     const made = R.rows.filter((r) => r[4] === id);
     const used = R.rows.filter((r) => r[6].some(([rid]) => rid === id));
@@ -615,6 +623,61 @@ async function itemExtras(el, base, file, houseIds) {
       <p class="note">Item level ${de.lvl}. ${esc(S.meta.deSource ?? "Classic disenchanting tables, unverified for Forever")}. Blizzard publishes no disenchant data, so these odds may differ in Forever.</p></div></div>`);
   }
   if (out.length) el.insertAdjacentHTML("beforeend", `<div class="grid2 extras">${out.join("")}</div>`);
+}
+
+// ---------- speculation ----------
+async function loadSpec() {
+  try { return await load(`spec-${S.region}.json`); } catch { return null; }
+}
+const scoreBar = (s) => `<div class="scorebar" title="Speculation score ${s.score}/100"><span style="width:${s.score}%"></span><b>${s.score}</b></div>`;
+const confPill = (c) => `<span class="conf conf-${c}" title="How much data backs this signal">${c}</span>`;
+const pctSigned = (x) => (x == null ? "–" : `${x >= 0 ? "+" : ""}${Math.round(x * 100)}%`);
+
+async function viewSpec(el) {
+  const [rows, idx] = await Promise.all([loadSpec(), index()]);
+  const f = store.get("specFilters", { minScore: 40, conf: "low", minSpd: "", q: "" });
+  const bt = S.meta.backtest?.speculation;
+  el.innerHTML = `
+    <h1 class="illumined">Speculation watch</h1>
+    <p class="lead">Items that look like they're being bought up or squeezed before a price move: listings draining away while sales hold, buyers taking more than sellers post, price starting to climb. Scores combine five signals; confidence reflects how much data backs them.</p>
+    <div class="cards">
+      <div class="card"><div class="k">Signals now</div><div class="v">${rows?.length ?? 0}</div><div class="note">${(rows ?? []).filter((s) => s.score >= 70).length} strong (70+)</div></div>
+      <div class="card"><div class="k">Track record</div><div class="v">${bt?.evaluated ? pct(bt.hitRate) : "–"}</div><div class="note">${bt?.evaluated ? `of ${bt.evaluated} flagged items rose ${pct(bt.rise)}+ within ${bt.days} days` : `checked ${bt?.days ?? 3} days after each flag; ${bt?.pending ?? 0} pending`}</div></div>
+      <div class="card"><div class="k">Average peak gain</div><div class="v">${bt?.avgPeakRise == null ? "–" : `+${Math.round(bt.avgPeakRise * 100)}%`}</div><div class="note">for flags that hit</div></div>
+    </div>
+    <div class="filters">
+      <label>Min score<input id="sp-minScore" type="number" min="0" max="100" step="5"></label>
+      <label>Confidence<select id="sp-conf"><option value="low">Any</option><option value="medium">Medium or high</option><option value="high">High only</option></select></label>
+      <label>Min sold/day<input id="sp-minSpd" type="number" min="0" step="0.5"></label>
+      <label>Item<input id="sp-q" type="search" placeholder="filter by name"></label>
+    </div>
+    <div id="sp-table"></div>
+    <details class="note explain"><summary>How the score works</summary>
+      <p>Each item is compared with its own usual level in the same house. Supply drain (35 points): units listed now versus usual. Demand holding (20): sales per day lately versus before. Price rising (20): market value now versus usual, full marks at +25%. Absorption (15): units bought versus genuinely new units posted, full marks when buyers take twice the new supply (reposts don't count as new). Scarcity (10): days of supply left at the recent sales rate. Big buyouts count hours where sales took at least a fifth of what was listed.</p>
+      <p>Until there are 7 days of history the comparison uses the last few hours against the previous 1–3 days; after that, days against the week before. An item is listed when supply is down at least 25% or buyers take at least 1.3× the new supply, and it scores 40+.</p></details>`;
+  for (const [k, v] of Object.entries(f)) { const i = $(`#sp-${k}`, el); if (i) i.value = v; }
+  const rank = { low: 0, medium: 1, high: 2 };
+  const draw = () => {
+    for (const k of Object.keys(f)) f[k] = $(`#sp-${k}`, el).value;
+    store.set("specFilters", f);
+    const q = f.q.trim().toLowerCase();
+    const list = (rows ?? []).map((s) => ({ ...s, info: idx.get(baseOf(s.key)) ?? { name: `Item ${s.key}`, q: "COMMON" } })).filter((s) =>
+      s.score >= Number(f.minScore || 0) && rank[s.confidence] >= rank[f.conf] && (!f.minSpd || (s.soldR ?? 0) >= Number(f.minSpd)) && (!q || s.info.name.toLowerCase().includes(q)));
+    $("#sp-table", el).replaceChildren(table([
+      { key: "name", label: "Item", html: (s) => itemCell(s.info.name, s.info.q, s.info.icon, houseLabel(s.house)), sort: (s) => s.info.name },
+      { key: "score", label: "Signal", html: (s) => `${scoreBar(s)} ${confPill(s.confidence)}`, sort: (s) => s.score },
+      { key: "supply", label: "Listed", num: true, title: "Units listed now (usual underneath)", html: (s) => `<span class="${s.supplyChange <= -0.25 ? "neg" : ""}">${s.qtyNow.toLocaleString()}</span><div class="sub">usual ${s.qtyBase.toLocaleString()} · ${pctSigned(s.supplyChange)}</div>`, sort: (s) => s.supplyChange },
+      { key: "qtyspark", label: "Supply", html: (s) => sparkline(s.sparkQty, { w: 90, h: 24 }) },
+      { key: "price", label: "Value", num: true, html: (s) => `${money(s.mvNow)}<div class="sub">${pctSigned(s.priceChange)} vs usual</div>`, sort: (s) => s.priceChange },
+      { key: "mvspark", label: "Price", html: (s) => sparkline(s.sparkMv, { w: 90, h: 24 }) },
+      { key: "sold", label: "Sold/day", num: true, html: (s) => `${fixed(s.soldR)}<div class="sub">${s.soldB == null ? "no earlier data" : `was ${fixed(s.soldB)}`}</div>`, sort: (s) => s.soldR },
+      { key: "abs", label: "Bought vs posted", num: true, title: "Units bought per unit newly posted (reposts excluded)", html: (s) => (s.absorption == null ? "–" : `<span class="${s.absorption >= 1.3 ? "pos" : ""}">${s.absorption.toFixed(1)}×</span>`), sort: (s) => s.absorption },
+      { key: "dos", label: "Days left", num: true, title: "Days of supply at the recent sales rate", html: (s) => (s.daysOfSupply == null ? "–" : s.daysOfSupply < 0.05 ? '<span class="neg">sold out</span>' : fixed(s.daysOfSupply)), sort: (s) => s.daysOfSupply },
+      { key: "buyouts", label: "Buyouts", num: true, title: "Hours with a big buyout in the last day", html: (s) => (s.buyouts ? `<b>${s.buyouts}</b>` : "–"), sort: (s) => s.buyouts },
+    ], list, { sortKey: "score", onRow: (s) => (location.hash = itemHref(S.region, s.key)), empty: rows?.length ? "Nothing matches these filters." : "No signals right now. Signals need a couple of days of hourly scans and sales tracking." }));
+  };
+  el.addEventListener("input", (e) => { if (e.target.closest(".filters")) draw(); });
+  draw();
 }
 
 async function viewHouses(el) {
@@ -774,7 +837,7 @@ async function route(opts = {}) {
   const y = window.scrollY;
   const el = $("#view");
   const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
-  document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active", a.dataset.nav === ({ "": "opps", houses: "houses", house: "houses", watch: "watch", status: "status", market: "market", trends: "trends", item: "market", crafting: "crafting" })[parts[0] ?? ""]));
+  document.querySelectorAll("[data-nav]").forEach((a) => a.classList.toggle("active", a.dataset.nav === ({ "": "opps", houses: "houses", house: "houses", watch: "watch", status: "status", market: "market", trends: "trends", item: "market", crafting: "crafting", spec: "spec" })[parts[0] ?? ""]));
   chart?.destroy();
   chart = null;
   depth?.destroy();
@@ -789,6 +852,7 @@ async function route(opts = {}) {
     else if (parts[0] === "market") await viewMarket(fresh);
     else if (parts[0] === "trends") await viewTrends(fresh);
     else if (parts[0] === "crafting") await viewCrafting(fresh);
+    else if (parts[0] === "spec") await viewSpec(fresh);
     else if (parts[0] === "house") await viewHouse(fresh, parts[1], Number(parts[2]));
     else if (parts[0] === "watch") await viewWatch(fresh);
     else if (parts[0] === "status") await viewStatus(fresh);

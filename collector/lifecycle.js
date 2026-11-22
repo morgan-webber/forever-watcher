@@ -65,5 +65,15 @@ export function diffLifecycle(prevLive = {}, current, { gapOk = true } = {}) {
       else if (tl === "SHORT" || tl === "MEDIUM") add(expired, key, qty);
     }
   }
-  return { next, sold, expired, reposted };
+  // Genuinely new supply: new listings left after pairing off reposts (units by item).
+  const posted = new Map();
+  if (gapOk) {
+    for (const [k, n] of fresh) {
+      if (n <= 0) continue;
+      const cut = k.lastIndexOf("|");
+      const key = k.slice(0, cut);
+      posted.set(key, (posted.get(key) ?? 0) + n * Number(k.slice(cut + 1)));
+    }
+  }
+  return { next, sold, expired, reposted, posted };
 }

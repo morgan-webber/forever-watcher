@@ -79,7 +79,7 @@ function timeLeft(hoursLeft) {
 }
 
 /** A simulated market for one region. step(nowMs) advances it to that hour. */
-export function createMarket(region, seed = 1) {
+export function createMarket(region, seed = 1, { hoardFrom = Infinity, hoardItem = 10620 } = {}) {
   const rand = rng(seed);
   const houses = new Map();
   let nextId = 1_000_000 * (region === "eu" ? 2 : 1);
@@ -110,10 +110,12 @@ export function createMarket(region, seed = 1) {
       for (const h of houses.values()) {
         h.listings = h.listings.filter((a) => a.expires > t);
         for (const it of h.items) {
-          const P = it.c[5] * it.factor * daily;
-          // Sellers.
           if (!it.c[5]) continue; // vendor-only item
-          const posts = Math.max(0, Math.round(it.demand * (0.8 + rand() * 0.6)));
+          // Hoarding scenario: a buyer works through the supply, sellers post less, price climbs.
+          const hoardH = it.c[0] === hoardItem && t >= hoardFrom ? (t - hoardFrom) / 3_600_000 : 0;
+          const P = it.c[5] * it.factor * daily * (1 + 0.012 * hoardH);
+          // Sellers.
+          const posts = Math.max(0, Math.round(it.demand * (hoardH ? 0.35 : 1) * (0.8 + rand() * 0.6)));
           for (let i = 0; i < Math.max(posts > 0 ? 1 : 0, Math.round(posts / 4)); i++) {
             let price = P * Math.exp((rand() - 0.4) * 0.3);
             const r = rand();
@@ -122,12 +124,12 @@ export function createMarket(region, seed = 1) {
             post(h, it, t, Math.max(1, Math.round(price)));
           }
           // Buyers take the cheapest units up to demand, if priced under 1.3x value.
-          let want = it.demand * (0.6 + rand() * 0.8);
+          let want = it.demand * (hoardH ? 4 : 1) * (0.6 + rand() * 0.8);
           const mine = h.listings.filter((a) => a.item.id === it.c[0]).sort((x, y) => (x.unit_price ?? x.buyout / x.quantity) - (y.unit_price ?? y.buyout / y.quantity));
           for (const a of mine) {
             if (want < 1) break;
             const unit = a.unit_price ?? a.buyout / a.quantity;
-            if (unit > P * 1.3) break;
+            if (unit > P * (hoardH ? 1.6 : 1.3)) break;
             const n = Math.min(a.quantity, Math.floor(want));
             want -= n;
             if (n >= a.quantity) a.quantity = 0;
@@ -156,8 +158,8 @@ export function createMarket(region, seed = 1) {
 }
 
 /** A fake Battle.net client backed by simulated markets. */
-export function createDemoClient(seed = 7) {
-  const markets = { us: createMarket("us", seed), eu: createMarket("eu", seed + 1) };
+export function createDemoClient(seed = 7, { hoardFrom = Infinity } = {}) {
+  const markets = { us: createMarket("us", seed, { hoardFrom }), eu: createMarket("eu", seed + 1) };
   let now = 0;
   let calls = 0;
   const byId = new Map(CATALOGUE.map((c) => [c[0], c]));
@@ -210,9 +212,9 @@ const demoFetchText = async (url) => (url.endsWith("/api/builds") ? JSON.stringi
 
 export async function buildDemo({ config, outDir, stateDir, days = 6, endMs = Date.now(), log = () => {}, seed = 7 }) {
   const tmpState = stateDir ?? (await fs.mkdtemp(path.join(os.tmpdir(), "fw-demo-")));
-  const client = createDemoClient(seed);
   const hours = days * 24;
   const start = Math.floor(endMs / 3_600_000) * 3_600_000 - hours * 3_600_000;
+  const client = createDemoClient(seed, { hoardFrom: start + (hours - 30) * 3_600_000 });
   let result;
   for (let i = 0; i <= hours; i++) {
     const t = start + i * 3_600_000;

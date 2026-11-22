@@ -45,5 +45,6 @@
   "minSoldPerDay": 0.5,
   "itemBackfillPerRun": 4000,
   "maxOppsPerRegion": 400,
-  "backtestWindowDays": 30
+  "backtestWindowDays": 30,
+  "specMinScore": 40
 }

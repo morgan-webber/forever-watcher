@@ -20,7 +20,7 @@ export function gold(c) {
   return (neg ? "-" : "") + parts.join(" ");
 }
 
-export function collectAlerts({ config, opps, current, items, houseName, sent, nowMs, siteUrl }) {
+export function collectAlerts({ config, opps, spec = [], current, items, houseName, sent, nowMs, siteUrl }) {
   const out = [];
   if (!config?.enabled) return out;
   const cooldown = (config.cooldownHours ?? 6) * 3_600_000;
@@ -47,6 +47,27 @@ export function collectAlerts({ config, opps, current, items, houseName, sent, n
           `Buy ${o.units} at <= ${gold(o.buyMax)} (cost ${gold(o.cost)}), ` +
           (o.type === "vendor" ? `vendor for ${gold(o.sellAt)} each. ` : `relist at ${gold(o.sellAt)}. `) +
           `Expected profit **${gold(o.ev)}** (${Math.round(o.roi * 100)}% ROI), grade ${o.grade}. ${link(o.region, o.key)}`,
+      );
+    }
+  }
+
+  const sc = config.speculation;
+  if (sc?.enabled) {
+    const confRank = { low: 0, medium: 1, high: 2 };
+    let n = 0;
+    for (const s of spec) {
+      if (n >= (sc.maxPerRun ?? 5)) break;
+      if (s.score < (sc.minScore ?? 70) || confRank[s.confidence] < confRank[sc.minConfidence ?? "medium"]) continue;
+      if (sc.regions?.length && !sc.regions.includes(s.region)) continue;
+      const id = `spec|${s.region}|${s.key}|${s.house}`;
+      if (!fresh(id)) continue;
+      sent[id] = nowMs;
+      n++;
+      const pctS = (x) => `${x >= 0 ? "+" : ""}${Math.round(x * 100)}%`;
+      out.push(
+        `**SPECULATION ${s.score}/100** ${name(s.key)} in ${houseName(s.region, s.house)} (${s.region.toUpperCase()}, ${s.confidence} confidence)\n` +
+          `Listed ${s.qtyNow.toLocaleString()} vs usual ${s.qtyBase.toLocaleString()} (${pctS(s.supplyChange)}), price ${pctS(s.priceChange)} to ${gold(s.mvNow)}, ` +
+          `~${Math.round(s.soldR)} sold/day${s.absorption != null ? `, buyers taking ${s.absorption.toFixed(1)}x new supply` : ""}${s.buyouts ? `, ${s.buyouts} big buyout hour(s)` : ""}. ${link(s.region, s.key)}`,
       );
     }
   }

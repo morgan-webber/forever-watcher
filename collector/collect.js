@@ -12,6 +12,7 @@ import { backfillItems } from "./items.js";
 import { findOpportunities } from "./opportunities.js";
 import { refreshRecipes, refreshClientItems, cleanCatalog } from "./catalog.js";
 import { findCrafts, findDisenchants, resolveVendorIds } from "./crafting.js";
+import { findSpeculation, logSpeculation, evaluateSpeculation } from "./speculation.js";
 import { logOpportunities, evaluate, summarise as summariseBacktest } from "./backtest.js";
 import { collectAlerts, postDiscord } from "./alerts.js";
 import { publish } from "./publish.js";
@@ -45,9 +46,11 @@ export async function collect({ client, config, stateDir, outDir, nowMs = Date.n
   const items = await readJson(S("items.json.gz"), {});
   const btLog = await readJson(S("backtest.json.gz"), []);
   const sent = await readJson(S("alerts-sent.json"), {});
+  const specLog = await readJson(S("spec-log.json.gz"), []);
   const regions = {};
   const current = {};
   const allOpps = [];
+  const allSpec = [];
   const stats = { fetched: 0, unchanged: 0, failed: 0 };
   // Sales model version: when the way sales are estimated changes, recorded sales are cleared so
   // averages don't mix the old and new estimates. Prices are kept.
@@ -149,7 +152,7 @@ export async function collect({ client, config, stateDir, outDir, nowMs = Date.n
             const diff = diffLifecycle(liveState.live, sum.live, { gapOk });
             recordSnapshot(hist, nowMs, sum.stats, settings.hourlyKeepHours);
             if (gapOk) {
-              recordSales(hist, nowMs, diff.sold, diff.expired);
+              recordSales(hist, nowMs, diff.sold, diff.expired, diff.posted);
               recordTracking(hist, nowMs, gapH);
             }
             prune(hist, nowMs, settings.dailyKeepDays);
@@ -198,7 +201,13 @@ export async function collect({ client, config, stateDir, outDir, nowMs = Date.n
     ].sort((a, b) => b.ev - a.ev).slice(0, settings.maxOppsPerRegion);
     log(`  ${opps.length} opportunities (${["flip", "vendor", "arbitrage", "craft", "disenchant"].map((t) => `${opps.filter((o) => o.type === t).length} ${t}`).join(", ")})`);
     allOpps.push(...opps);
-    regions[region] = { houses: houseData.map((h) => h.house), allHouses: houses, hists, opps, focus, ladders: new Map(houseData.map((h) => [h.house.id, h.ladders])), houseData, vendorIds };
+
+    // Speculation watch.
+    const spec = findSpeculation(houseData, nowMs, settings, { minScore: settings.specMinScore ?? 40 });
+    logSpeculation(specLog, region, spec, nowMs);
+    log(`  ${spec.length} speculation signals (${spec.filter((s) => s.score >= 70).length} strong)`);
+    allSpec.push(...spec.map((s) => ({ ...s, region })));
+    regions[region] = { houses: houseData.map((h) => h.house), allHouses: houses, hists, opps, focus, ladders: new Map(houseData.map((h) => [h.house.id, h.ladders])), houseData, vendorIds, spec };
   }
 
   // Tell the workflow when Blizzard publishes, so the next run can wake just after it.
@@ -214,10 +223,11 @@ export async function collect({ client, config, stateDir, outDir, nowMs = Date.n
   logOpportunities(btLog, allOpps, nowMs);
   evaluate(btLog, (region, hid) => regions[region]?.hists.get(hid), nowMs, settings);
   const backtest = summariseBacktest(btLog);
+  backtest.speculation = evaluateSpeculation(specLog, (region, hid) => regions[region]?.hists.get(hid), nowMs);
 
   // 6. Alerts.
   const houseName = (region, hid) => meta.houses[region]?.find((h) => h.id === hid)?.name ?? `House ${hid}`;
-  const messages = collectAlerts({ config: alertConfig, opps: allOpps.sort((a, b) => b.ev - a.ev), current, items, houseName, sent, nowMs, siteUrl });
+  const messages = collectAlerts({ config: alertConfig, opps: allOpps.sort((a, b) => b.ev - a.ev), spec: allSpec, current, items, houseName, sent, nowMs, siteUrl });
   if (messages.length && discordWebhook) {
     const posts = await postDiscord(discordWebhook, messages, { fetchImpl, log });
     log(`alerts: ${messages.length} sent in ${posts} Discord post(s)`);
@@ -228,6 +238,7 @@ export async function collect({ client, config, stateDir, outDir, nowMs = Date.n
   await writeJson(S("items.json.gz"), items);
   await writeJson(S("backtest.json.gz"), btLog);
   await writeJson(S("alerts-sent.json"), sent);
+  await writeJson(S("spec-log.json.gz"), specLog);
   if (!skipPublish) await publish({ outDir, regions, items, settings, fees, backtest, nowMs, demo, catalog });
   log(`done: ${stats.fetched} houses updated, ${stats.unchanged} unchanged, ${stats.failed} failed, ${client.callCount?.() ?? "?"} API calls`);
   return { stats, opps: allOpps, backtest, messages };

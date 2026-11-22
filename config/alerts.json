@@ -26,5 +26,14 @@
       "item": "2589",
       "below": 1000
     }
-  ]
+  ],
+  "speculation": {
+    "enabled": true,
+    "minScore": 70,
+    "minConfidence": "medium",
+    "regions": [
+      "us"
+    ],
+    "maxPerRun": 5
+  }
 }
